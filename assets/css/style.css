@@ -20,6 +20,16 @@
   --acHi: #8bf5b8;
   --g1: #365f45;
   --g2: #26402f;
+
+  /* The field's ink ramp. The ground behind the deck is not one colour at
+     varying alpha: it is hard cells, each wearing one of these. Same five
+     steps omarchy.org derives as --t-field-*, mixed here from the accent. */
+  --field-dim: #193525;
+  --field-mid: #327a52;
+  --field-lit: #5ef2a0;
+  --field-hover: #8ef6bd;
+  --field-crest: #bffad9;
+
   --scan: repeating-linear-gradient(180deg, rgba(0,0,0,.42) 0 2px, transparent 2px 4px);
 
   --wt-small: 500;

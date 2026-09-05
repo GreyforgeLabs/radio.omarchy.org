@@ -103,7 +103,10 @@
     var bg = t.bg, fg = t.fg, ac = t.ac, bd = t.bd;
     var light = lum(bg) > 0.5;
     var deep = light ? '#ffffff' : '#000000';
+    // Away from the ground: white on a dark theme, black on a light one.
+    var lift = light ? '#000000' : '#ffffff';
     var lcd = mix(bg, deep, light ? 0.55 : 0.5);
+    var acHi = mix(ac, lift, 0.3);
     return {
       name: t.name, bg: bg, fg: fg, ac: ac, bd: bd,
       bdF: mix(bd, bg, 0.55),
@@ -114,9 +117,20 @@
       trk: mix(fg, bg, 0.85),
       lcd: lcd,
       acFg: lum(ac) > 0.55 ? mix(bg, '#000000', 0.35) : '#ffffff',
-      acHi: mix(ac, light ? '#000000' : '#ffffff', 0.3),
+      acHi: acHi,
       g1: mix(ac, lcd, 0.45),
       g2: mix(ac, lcd, 0.62),
+
+      /* The field's own ink ramp, derived the way omarchy.org derives its
+         --t-field-* steps. The background there is not one colour at
+         varying alpha: it is hard cells that each take one of five inks,
+         and the depth comes from which ink a cell wears. Same five steps
+         here, mixed from this theme's accent rather than hand-picked. */
+      fDim: mix(ac, bg, 0.82),
+      fMid: mix(ac, bg, 0.52),
+      fLit: ac,
+      fHov: acHi,
+      fCrest: mix(ac, lift, 0.6),
       light: light
     };
   }
@@ -186,6 +200,11 @@
 
   var lev = new Float32Array(BAR_COUNT);
   var amp = 0;
+  // The derived theme, held rather than recomputed for every frame the field
+  // paints: it is twenty-odd colour mixes and it only changes when the skin does.
+  var curTheme = null;
+  // A field that cannot move is painted once, not driven.
+  var stillPainted = false;
   var simVis = true;
   var audio, music, pod, ctx, analyser, freq, dpr = 1;
   var loadedSrc = '';
@@ -219,7 +238,8 @@
   /* ── theme application ───────────────────────────────── */
 
   function applyTheme() {
-    var k = theme(S.skin);
+    var k = curTheme = theme(S.skin);
+    stillPainted = false; // a still field has to be repainted in the new inks
     var r = document.documentElement.style;
     r.setProperty('--bg', k.bg);
     r.setProperty('--fg', k.fg);
@@ -236,6 +256,11 @@
     r.setProperty('--acHi', k.acHi);
     r.setProperty('--g1', k.g1);
     r.setProperty('--g2', k.g2);
+    r.setProperty('--field-dim', k.fDim);
+    r.setProperty('--field-mid', k.fMid);
+    r.setProperty('--field-lit', k.fLit);
+    r.setProperty('--field-hover', k.fHov);
+    r.setProperty('--field-crest', k.fCrest);
     r.setProperty('--scan', 'repeating-linear-gradient(180deg, ' +
       (k.light ? 'rgba(0,0,0,.055) 0 1px, transparent 1px 4px'
                : 'rgba(0,0,0,.42) 0 2px, transparent 2px 4px') + ')');
@@ -1867,7 +1892,77 @@
   }
 
 
-  /* ── canvas background ───────────────────────────────── */
+  /* ── the field ────────────────────────────────────────────
+     The ground the deck sits on, made of the same material as the field
+     behind omarchy.org's wordmark: hard cells on one lattice, thresholded
+     through an ordered dither, each wearing one of the theme's field inks
+     rather than one ink at varying alpha. Nothing is drawn as a haze.
+     What lights a cell here is the record that is playing. */
+
+  /** Classic 8x8 ordered dither matrix, 0..63. */
+  var BAYER = [
+    0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26,
+    12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+    3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25,
+    15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21
+  ];
+
+  /* Bayer on its own lights the same low-index cells everywhere, which at
+     this density reads as a regular lattice rather than as texture. A fixed
+     per-cell offset scatters the resting field, while the ordered structure
+     still shows through wherever a loud band pushes a column bright. */
+  var JITTER = rand(4096);
+  /* The drifting texture, sampled as value noise rather than evaluated as a
+     wave: blobs that wander and dissolve, not a pattern sliding past. */
+  var NOISE_SIZE = 128;
+  var NOISE = rand(NOISE_SIZE * NOISE_SIZE);
+
+  function rand(n) {
+    var a = new Float32Array(n);
+    for (var i = 0; i < n; i++) a[i] = Math.random();
+    return a;
+  }
+
+  /** Bilinear value noise, smoothstepped, wrapping at the field's edge. */
+  function noiseAt(u, v) {
+    var s = NOISE_SIZE;
+    var x = u - Math.floor(u / s) * s, y = v - Math.floor(v / s) * s;
+    var x0 = Math.floor(x), y0 = Math.floor(y);
+    var x1 = (x0 + 1) % s, y1 = (y0 + 1) % s;
+    var fx = x - x0, fy = y - y0;
+    var sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    var a = NOISE[y0 * s + x0], b = NOISE[y0 * s + x1];
+    var c = NOISE[y1 * s + x0], d = NOISE[y1 * s + x1];
+    return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
+  }
+
+  /* The deck's frame is cut into this many cells across, the same count
+     omarchy.org cuts its wordmark into. The field runs at the deck's own
+     resolution rather than at a round number of pixels, and takes the
+     frame's own left edge as the origin, so the two can never fall out of
+     step however the window is sized. */
+  var FIELD_COLS = 81;
+  /* How much of a cell's luminance the resting texture is worth. The field
+     is a ground, not a pattern: at this level roughly one cell in six clears
+     the dither at rest, which reads as texture. Much above it and the
+     ordered matrix starts to show through as a checkerboard. */
+  var REST = 0.34;
+  /** Grid cells per unit of noise: how big the drifting blobs read. */
+  var CELLS_PER_NOISE = 9;
+  /** How far, in CSS px, the resting field stays clear of the deck. */
+  var CLEAR_REACH = 240;
+  /* How it comes back over that distance. A smoothstep is half strength at
+     the halfway mark, which packs texture right up against the frame and
+     fights its 1px border; cubed, it is an eighth there, so the field keeps
+     its distance and builds out in the margins where there is room. */
+  var CLEAR_CURVE = 3;
+  /** How much of the field's height the loudest band may climb. */
+  var SPECTRUM_REACH = 0.92;
+  /** How dense a column gets, and how much of it wears the brighter inks. */
+  var SPECTRUM_DENSITY = 0.72;
+  var SPECTRUM_HEAT = 0.55;
+  /** Below this a band is resting and its column shows nothing extra. */
+  var SPECTRUM_FLOOR = 0.08;
 
   function sizeCanvas() {
     var c = el.bg;
@@ -1876,45 +1971,97 @@
     if (!w || !h) return;
     c.width = Math.round(w * dpr);
     c.height = Math.round(h * dpr);
+    stillPainted = false; // the still field is sized to a window that just changed
   }
 
-  function drawBg() {
+  function drawBg(still) {
     var c = el.bg;
     if (!c || !c.width) return;
     var g2d = c.getContext('2d');
     var w = c.width / dpr, h = c.height / dpr;
     var n = lev.length;
+
     var sum = 0;
     for (var i = 0; i < n; i++) sum += lev[i];
     amp = amp * 0.9 + (sum / n) * 0.1;
 
-    var t = performance.now() / 1000;
-    var k = theme(S.skin);
-    var rgb = [1, 3, 5].map(function (j) { return parseInt(k.ac.slice(j, j + 2), 16); }).join(', ');
-    var step = 24;
+    // A field that cannot move still gets its texture; it simply stands still.
+    var t = still ? 0 : performance.now() / 1000;
+    var k = curTheme || (curTheme = theme(S.skin));
 
     g2d.setTransform(dpr, 0, 0, dpr, 0, 0);
     g2d.clearRect(0, 0, w, h);
 
-    for (var x = step / 2; x < w; x += step) {
-      var col = Math.floor((x / w) * n);
-      var l = lev[Math.min(n - 1, col)] || 0;
-      for (var y = step / 2; y < h; y += step) {
-        var wave = Math.sin((y / h) * 5 - t * 0.9 + (x / w) * 3) * 0.5 + 0.5;
-        var a = 0.018 + l * 0.10 * wave + amp * 0.05 * wave;
-        if (a < 0.02) continue;
-        var r = 1 + l * wave * 2.2;
-        g2d.fillStyle = 'rgba(' + rgb + ', ' + Math.min(0.2, a).toFixed(3) + ')';
-        g2d.fillRect(x - r / 2, y - r / 2, r, r);
+    // The lattice is the deck's. The frame carries the scale factor in a
+    // transform, so its measured box is what is actually on screen.
+    var box = el.app.getBoundingClientRect();
+    var cell = (box.width || w) / FIELD_COLS;
+    if (!(cell > 1)) return;
+
+    var cMin = Math.floor(-box.left / cell), rMin = Math.floor(-box.top / cell);
+    var cMax = Math.ceil((w - box.left) / cell), rMax = Math.ceil((h - box.top) / cell);
+    var rowsTotal = h / cell;
+    var midX = box.left + box.width / 2;
+    var half = Math.max(1, w / 2);
+
+    for (var col = cMin; col <= cMax; col++) {
+      var x = box.left + col * cell, cx = x + cell / 2;
+
+      /* This column's band, mirrored about the deck: the bass at the outer
+         edges where the field has the most room, the treble in towards the
+         frame. Blended with its neighbour so the bands do not read as bars. */
+      var side = Math.min(1, Math.abs(cx - midX) / half);
+      var pos = (1 - side) * n - 0.5;
+      var b0 = Math.max(0, Math.min(n - 1, Math.floor(pos)));
+      var b1 = Math.min(n - 1, b0 + 1);
+      var mixB = Math.max(0, Math.min(1, pos - b0));
+      var raw = lev[b0] * (1 - mixB) + lev[b1] * mixB;
+      var level = Math.max(0, (raw - SPECTRUM_FLOOR) / (1 - SPECTRUM_FLOOR));
+      var tall = level * rowsTotal * SPECTRUM_REACH;
+      var dx = Math.max(box.left - cx, 0, cx - box.right);
+
+      for (var row = rMin; row <= rMax; row++) {
+        var y = box.top + row * cell, cy = y + cell / 2;
+
+        // Inside the frame there is nothing to see: the deck is opaque.
+        var dy = Math.max(box.top - cy, 0, cy - box.bottom);
+        if (dx === 0 && dy === 0) continue;
+
+        // How far the field has come back from the deck at this distance.
+        var shade = Math.min(1, Math.sqrt(dx * dx + dy * dy) / CLEAR_REACH);
+        shade = Math.pow(shade, CLEAR_CURVE);
+        if (shade < 0.004) continue;
+
+        var u = col / CELLS_PER_NOISE, v = row / CELLS_PER_NOISE;
+        var base = 0.6 * noiseAt(u + t * 0.14, v - t * 0.055) +
+                   0.4 * noiseAt(u * 0.55 - t * 0.08, v * 0.55 + t * 0.06);
+        // Each cell also blinks on its own rhythm, so a cell appearing is a
+        // local event rather than the whole pattern drifting.
+        var tw = 0.5 + 0.5 * Math.sin(t * 1.1 + JITTER[(row * 37 + col * 11) & 4095] * 6.283);
+        var lit = shade * (0.30 + 0.52 * base * base + 0.18 * tw + amp * 0.22) * REST;
+
+        /* The spectrum thickens the column from the bottom up, as high as
+           the band is loud, easing off towards the top rather than thinning
+           in a straight line so the body of a column stays full. */
+        var spec = 0;
+        if (level > 0) {
+          var up = (h - cy) / cell;
+          if (up < tall) {
+            spec = level * Math.pow(1 - up / tall, 0.85);
+            lit += spec * SPECTRUM_DENSITY * Math.min(1, shade * 3);
+          }
+        }
+
+        var threshold = 0.78 * ((BAYER[(row & 7) * 8 + (col & 7)] + 0.5) / 64) +
+                        0.22 * JITTER[((row & 63) * 64 + (col & 63)) & 4095];
+        if (lit <= threshold) continue;
+
+        var heat = spec * SPECTRUM_HEAT + amp * 0.12;
+        g2d.fillStyle = heat > 0.34 ? k.fLit : heat > 0.1 ? k.fMid : k.fDim;
+        var px = Math.round(x), py = Math.round(y);
+        g2d.fillRect(px, py, Math.round(x + cell) - px, Math.round(y + cell) - py);
       }
     }
-
-    var glow = 40 + amp * 260;
-    var grad = g2d.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, glow + 320);
-    grad.addColorStop(0, 'rgba(' + rgb + ', ' + (0.02 + amp * 0.06).toFixed(3) + ')');
-    grad.addColorStop(1, 'rgba(' + rgb + ', 0)');
-    g2d.fillStyle = grad;
-    g2d.fillRect(0, 0, w, h);
   }
 
   // The analyser is wired to the music element. Anything else is simulated.
@@ -1944,7 +2091,13 @@
       kids[q].style.height = (4 + lev[q] * 96).toFixed(1) + '%';
     }
 
-    if (!reduceMotion) drawBg();
+    /* A field that cannot move is still a field. It used to be skipped
+       outright, which left reduced-motion readers a blank ground where
+       everyone else got the texture; now it is painted once, standing
+       still, and again only when the window or the theme changes. */
+    if (reduceMotion) {
+      if (!stillPainted) { stillPainted = true; drawBg(true); }
+    } else drawBg();
     requestAnimationFrame(frame);
   }
 
