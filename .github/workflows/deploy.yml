@@ -26,6 +26,10 @@ name: deploy
 on:
   push:
     branches: [main]
+  # The same build and the same checks, without the publish: a pull request
+  # that would not build is worth knowing about before it is merged, and after
+  # a merge is too late here because the merge is the deploy.
+  pull_request:
   workflow_dispatch:
   # stories.yml calls this after mirroring an episode in. It has to: a push
   # made with GITHUB_TOKEN does not set off another workflow, so the hourly
@@ -43,9 +47,15 @@ on:
 # the same site, so they queue rather than overlap. Not shared with the feed
 # mirror: this workflow is what that one calls, and a group held by the caller
 # is a group the callee waits on forever.
+#
+# A pull request is not in that race. It gets a group of its own so a check
+# never queues behind a deploy, and a second push to a branch calls off the
+# check still running on the first.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('deploy-pr-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -59,7 +69,12 @@ jobs:
       # Before anything expensive. A repository still serving from a branch
       # will not serve what this run uploads, and the failure it gives at the
       # end names neither the cause nor the fix.
+      #
+      # Not on a pull request: nothing is being published, and a check that
+      # went red over a setting the branch cannot change would be red on every
+      # pull request until somebody changed it.
       - name: Check that Pages is set to deploy from Actions
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -101,12 +116,17 @@ jobs:
       - name: Check that every address serves the page it should
         run: node tools/test-routes.mjs --no-build
 
+      # 160 MB of it is the songs, so this is skipped on a pull request: the
+      # build and the checks are what a branch needs, and there is nothing to
+      # publish it to.
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: dist
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
