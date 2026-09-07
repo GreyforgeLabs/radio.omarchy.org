@@ -18,7 +18,7 @@
 
    Bump VERSION to retire every old cache on the next activate. */
 
-var VERSION = 'v5';
+var VERSION = 'v6';
 var SHELL = 'omarchy-radio-' + VERSION;
 var PAGE = '/index.html';
 

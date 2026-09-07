@@ -1227,6 +1227,18 @@ function loadTracks() {
       if (i < 0) { autostart('replace'); return; }
       if (i !== S.ti) { S.ti = i; paintAll(); }
     }
+
+    /* And on where its file is. A slug comes from the title, so a song whose
+       file was renamed is still the same song at the same address — but the
+       copy kept from the last visit named the old file, and the deck started
+       playing it before this landed. The manifest is the authority on where
+       a song lives, so if what is loaded is not what it now says, load that.
+       Without this the element sits on a 404 until the reconnect budget
+       happens to retry it. */
+    if (S.mode === 'track' && loadedSrc && intent === 'play') {
+      var want = wantedSrc();
+      if (want && want !== loadedSrc) play(want, 'track', S.ti);
+    }
   }).catch(function () {
     // Offline, or the manifest is gone. Whatever was kept still plays; with
     // nothing kept the playlist is simply empty.

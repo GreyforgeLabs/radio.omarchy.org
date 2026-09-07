@@ -83,7 +83,22 @@ async function until(what, fn, ms = 6000, step = 100) {
    its first tick and this has to be watching by then. The audio elements are
    never in the document, so the prototype is where they can be seen. */
 const PROBE = `
-window.__probe = { plays: [], refused: [], media: [], copied: [] };
+window.__probe = { plays: [], refused: [], media: [], copied: [], statuses: [] };
+/* Every value the status line has held, not just the one it holds now. Some
+   of what the deck does is only visible as a state it passed through — a
+   reconnect that was scheduled and then satisfied leaves nothing behind. */
+document.addEventListener('DOMContentLoaded', function () {
+  var node = document.getElementById('status');
+  if (!node) return;
+  var seen = function () {
+    var t = (node.textContent || '').trim();
+    if (t && window.__probe.statuses[window.__probe.statuses.length - 1] !== t) {
+      window.__probe.statuses.push(t);
+    }
+  };
+  seen();
+  new MutationObserver(seen).observe(node, { childList: true, characterData: true, subtree: true });
+});
 try {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -149,6 +164,7 @@ window.__state = function () {
     tab: (document.querySelector('.seg-b.is-on') || {}).id || '',
     note: (document.getElementById('playlistNote') || {}).textContent || '',
     plays: window.__probe.plays.slice(),
+    statuses: window.__probe.statuses.slice(),
     copied: window.__probe.copied.slice(),
     refused: window.__probe.refused.slice(),
     playing: live.length > 0,
@@ -403,6 +419,61 @@ async function find({ songs }) {
       return st.tab === 'tabPodcast' ? st : null;
     });
     if (s) is(s.query, '', 'switching lists clears the query rather than filtering the other one');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
+/* A visitor coming back after the files were renamed.
+   Slugs come from titles, so a song whose file changed is the same song at the
+   same address — but the copy of the playlist kept in localStorage names the
+   old file, and the deck starts playing it before the real manifest lands.
+   The manifest is the authority on where a song lives. */
+async function stalePlaylist({ songs }) {
+  section('coming back to a playlist whose files have moved');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  /* A permalink, not the front page. tuneIn() only reaches for the kept copy
+     when the address names something out of a list — the front page has
+     nothing to look up, so it waits for the manifest and the stale copy never
+     gets a chance to be wrong. */
+  const song = songs[3];
+  try {
+    // Arrive once so the deck keeps a copy, then spoil the copy the way a
+    // rename would have: same titles, files that are no longer there.
+    await tab.go('/');
+    await until('the deck to keep a copy', () =>
+      tab.eval("!!localStorage.getItem('omarchy-radio-playlist')"));
+
+    const spoiled = await tab.eval(`(function () {
+      var kept = JSON.parse(localStorage.getItem('omarchy-radio-playlist'));
+      kept.tracks.forEach(function (t) { t.file = 'gone-' + t.file; });
+      localStorage.setItem('omarchy-radio-playlist', JSON.stringify(kept));
+      return kept.tracks[0].file;
+    })()`);
+    ok(/^gone-/.test(spoiled), `the kept copy now names files that are not there (${spoiled})`);
+
+    await tab.go(song.path);
+    const s = await until('the deck to play the file the manifest names', async () => {
+      const st = await tab.state();
+      return st.playing && st.at > 0 ? st : null;
+    }, 20000);
+    if (!s) return;
+    ok(!/gone-/.test(decodeURIComponent(s.src)),
+       `it is not playing the file that moved (${decodeURIComponent(s.src).split('/').pop()})`);
+    ok(decodeURIComponent(s.src).includes(song.file),
+       'it is playing the one the manifest names');
+    is(s.rows, songs.length, 'and the list is the real one');
+
+    /* And it got there directly. The reconnect budget would have corrected
+       this on its own a second later — the address it retries is read back
+       from the list — so the end state is not what distinguishes a deck that
+       takes the manifest's word from one that waits to be told by a 404.
+       What distinguishes them is whether anybody had to watch it reconnect. */
+    const stalled = s.statuses.filter((t) => /reconnect|would not play/i.test(t));
+    ok(stalled.length === 0,
+       `it did not have to reconnect to find out (saw: ${stalled.join(' / ') || 'nothing'})`);
   } finally {
     await tab.close();
     await browser.close();
@@ -943,6 +1014,7 @@ try {
   await autoplayRefused(site);
   await find(site);
   await reveal(site);
+  await stalePlaylist(site);
   await desktopTheme();
   await offline(site);
   console.log(`  ${passed - mark} checks`);
