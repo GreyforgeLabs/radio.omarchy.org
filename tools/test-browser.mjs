@@ -1,12 +1,13 @@
 /* Drives a real browser over the routes, because the thing worth testing
-   about a permalink is not that the file exists — tools/test-routes.py has
+   about a permalink is not that the file exists — tools/test-routes.mjs has
    that — but what happens in the four seconds after somebody opens one.
 
        node tools/test-browser.mjs
 
-   It serves the working tree through tools/test-routes.py --serve, which
-   resolves paths the way GitHub Pages does, and drives chromium through the
-   DevTools protocol. No dependencies: node's own WebSocket, and chromium.
+   It serves dist/ through tools/test-routes.mjs --serve, which resolves paths
+   the way GitHub Pages does, and drives chromium through the DevTools
+   protocol. No dependencies: node's own WebSocket, and chromium. Run
+   `npm run build` first, or `npm test`, which builds.
 
    Point it at what is deployed to check a deploy:
 
@@ -16,7 +17,8 @@
 
      - opening /playlist/<song> plays that song, and nothing else
      - opening /podcast/<episode> loads that episode
-     - when autoplay is refused, the deck says so and the next press pays it
+     - when an audible autoplay is refused, it plays muted anyway and the
+       next press turns the sound on where the track has got to
      - pressing a row routes: the address follows, the page does not reload,
        and the audio swaps without going back to the network for a document
      - back and forward walk the songs that were pressed
@@ -82,7 +84,22 @@ async function until(what, fn, ms = 6000, step = 100) {
    its first tick and this has to be watching by then. The audio elements are
    never in the document, so the prototype is where they can be seen. */
 const PROBE = `
-window.__probe = { plays: [], refused: [], media: [], copied: [] };
+window.__probe = { plays: [], refused: [], media: [], copied: [], statuses: [] };
+/* Every value the status line has held, not just the one it holds now. Some
+   of what the deck does is only visible as a state it passed through — a
+   reconnect that was scheduled and then satisfied leaves nothing behind. */
+document.addEventListener('DOMContentLoaded', function () {
+  var node = document.getElementById('status');
+  if (!node) return;
+  var seen = function () {
+    var t = (node.textContent || '').trim();
+    if (t && window.__probe.statuses[window.__probe.statuses.length - 1] !== t) {
+      window.__probe.statuses.push(t);
+    }
+  };
+  seen();
+  new MutationObserver(seen).observe(node, { childList: true, characterData: true, subtree: true });
+});
 try {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -120,12 +137,39 @@ window.__state = function () {
     rowHref: on ? on.getAttribute('href') : '',
     state: on ? (on.querySelector('.tr-st') || {}).textContent : '',
     rows: document.querySelectorAll('a.track').length,
+    // The numbers on screen, which are the items' places in the list rather
+    // than their places among whatever the find box left showing.
+    nums: Array.prototype.map.call(document.querySelectorAll('#tracks .tr-n'),
+      function (n) { return n.textContent; }),
+    titles: Array.prototype.map.call(document.querySelectorAll('#tracks .tr-title'),
+      function (n) { return n.textContent; }),
+    query: (document.getElementById('find') || {}).value || '',
+    scroll: (function () {
+      var box = document.getElementById('tracks');
+      var row = document.querySelector('#tracks li.is-on');
+      if (!box) return null;
+      var out = { top: box.scrollTop, height: box.clientHeight,
+                  scrollable: box.scrollHeight > box.clientHeight + 1, inView: null };
+      if (row) {
+        out.rowTop = row.offsetTop;
+        out.rowHeight = row.offsetHeight;
+        out.inView = row.offsetTop >= box.scrollTop &&
+          row.offsetTop + row.offsetHeight <= box.scrollTop + box.clientHeight;
+      }
+      return out;
+    })(),
+    hint: (document.getElementById('findHint') || {}).textContent || '',
+    skin: (document.getElementById('skinName') || {}).textContent || '',
+    skins: Array.prototype.map.call(document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin; }),
     tab: (document.querySelector('.seg-b.is-on') || {}).id || '',
     note: (document.getElementById('playlistNote') || {}).textContent || '',
     plays: window.__probe.plays.slice(),
+    statuses: window.__probe.statuses.slice(),
     copied: window.__probe.copied.slice(),
     refused: window.__probe.refused.slice(),
     playing: live.length > 0,
+    muted: live.length ? live[0].muted : null,
     src: live.length ? live[0].src : '',
     at: live.length ? live[0].currentTime : 0,
     error: window.__probe.media.map(function (m) { return m.error ? m.error.code : 0; }),
@@ -292,7 +336,7 @@ function open(url) {
 /* ── the site under test ─────────────────────────────────────────────── */
 function serve() {
   if (SITE) return { kill() {} }; // testing what is deployed, not what is here
-  return spawn('python3', [join(ROOT, 'tools/test-routes.py'), '--serve'], {
+  return spawn('node', [join(ROOT, 'tools/test-routes.mjs'), '--serve'], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore',
   });
 }
@@ -315,6 +359,284 @@ async function routes() {
 }
 
 /* ── the checks ──────────────────────────────────────────────────────── */
+
+/* Typing into the find box, which is the one thing the deck does to what is
+   on screen that deliberately does not touch the address. */
+async function find({ songs }) {
+  section('finding a song');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    await tab.go('/playlist');
+    /* Every page arrives with the rows already in it, so a row on screen is
+       not evidence the deck is running — and typing into a box whose listener
+       is not attached yet does nothing at all. Playing is the signal that the
+       deck has booted, read the manifest and taken the list over. */
+    const all = await until('the deck to own the playlist', async () => {
+      const s = await tab.state();
+      return s.playing && s.rows >= songs.length ? s : null;
+    });
+    if (!all) return;
+
+    const type = async (q) => {
+      await tab.eval(`(function () {
+        var b = document.getElementById('find');
+        b.value = ${JSON.stringify(q)};
+        b.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      return tab.state();
+    };
+
+    // A word from a title and a word from an artist, which no single field has.
+    let s = await type('koontz fix');
+    is(s.rows, 1, 'both words have to appear, across the title and the artist');
+    ok(/Fix Everything/.test(s.titles[0] || ''), `and it is the right song (${s.titles[0]})`);
+    // The number is the song's place in the playlist, not its place here.
+    const at = all.titles.indexOf(s.titles[0]);
+    is(s.nums[0], String(at + 1).padStart(2, '0'),
+       'a filtered row keeps the number it has in the playlist');
+    ok(/\b1 of \d+ tracks\b/.test(s.note), `the note counts the matches (${s.note})`);
+    is(s.hint, 'esc', 'and the key hint says how to get out of it');
+
+    // An accent nobody is going to type.
+    s = await type('aurelien');
+    is(s.rows, 1, 'accents are folded on both sides');
+
+    s = await type('zzz-nothing-is-called-this');
+    is(s.rows, 0, 'a query that matches nothing shows nothing');
+    ok(/nothing matched/.test(s.note), `and says so (${s.note})`);
+
+    // Nothing about any of it is an address.
+    is(s.path, '/playlist', 'a query does not touch the address');
+
+    s = await type('');
+    is(s.rows, songs.length, 'emptying it brings the playlist back');
+    is(s.hint, '/', 'and the hint goes back to the key that focuses it');
+
+    // The query was typed at the songs; the episodes are a different list.
+    await type('quattro');
+    await tab.eval("document.getElementById('tabPodcast').click()");
+    s = await until('the podcast tab', async () => {
+      const st = await tab.state();
+      return st.tab === 'tabPodcast' ? st : null;
+    });
+    if (s) is(s.query, '', 'switching lists clears the query rather than filtering the other one');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
+/* A visitor coming back after the files were renamed.
+   Slugs come from titles, so a song whose file changed is the same song at the
+   same address — but the copy of the playlist kept in localStorage names the
+   old file, and the deck starts playing it before the real manifest lands.
+   The manifest is the authority on where a song lives. */
+async function stalePlaylist({ songs }) {
+  section('coming back to a playlist whose files have moved');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  /* A permalink, not the front page. tuneIn() only reaches for the kept copy
+     when the address names something out of a list — the front page has
+     nothing to look up, so it waits for the manifest and the stale copy never
+     gets a chance to be wrong. */
+  const song = songs[3];
+  try {
+    // Arrive once so the deck keeps a copy, then spoil the copy the way a
+    // rename would have: same titles, files that are no longer there.
+    await tab.go('/');
+    await until('the deck to keep a copy', () =>
+      tab.eval("!!localStorage.getItem('omarchy-radio-playlist')"));
+
+    const spoiled = await tab.eval(`(function () {
+      var kept = JSON.parse(localStorage.getItem('omarchy-radio-playlist'));
+      kept.tracks.forEach(function (t) { t.file = 'gone-' + t.file; });
+      localStorage.setItem('omarchy-radio-playlist', JSON.stringify(kept));
+      return kept.tracks[0].file;
+    })()`);
+    ok(/^gone-/.test(spoiled), `the kept copy now names files that are not there (${spoiled})`);
+
+    await tab.go(song.path);
+    const s = await until('the deck to play the file the manifest names', async () => {
+      const st = await tab.state();
+      return st.playing && st.at > 0 ? st : null;
+    }, 20000);
+    if (!s) return;
+    ok(!/gone-/.test(decodeURIComponent(s.src)),
+       `it is not playing the file that moved (${decodeURIComponent(s.src).split('/').pop()})`);
+    ok(decodeURIComponent(s.src).includes(song.file),
+       'it is playing the one the manifest names');
+    is(s.rows, songs.length, 'and the list is the real one');
+
+    /* And it got there directly. The reconnect budget would have corrected
+       this on its own a second later — the address it retries is read back
+       from the list — so the end state is not what distinguishes a deck that
+       takes the manifest's word from one that waits to be told by a 404.
+       What distinguishes them is whether anybody had to watch it reconnect. */
+    const stalled = s.statuses.filter((t) => /reconnect|would not play/i.test(t));
+    ok(stalled.length === 0,
+       `it did not have to reconnect to find out (saw: ${stalled.join(' / ') || 'nothing'})`);
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
+/* Following a link to a song a long way down the list.
+   A permalink arrives with one row in the page and the whole playlist a
+   moment later, so the row it named ends up wherever it sits — which for the
+   last song is well below the fold of a list that scrolls. */
+async function reveal({ songs }) {
+  section('being sent to a song down the list');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    const last = songs[songs.length - 1];
+    await tab.go(last.path);
+    const s = await until('the song, out of the whole playlist', async () => {
+      const st = await tab.state();
+      return st.playing && st.rows >= songs.length ? st : null;
+    });
+    if (!s) return;
+
+    is(s.rowHref, last.path, 'the row the address named is the one playing');
+    if (!ok(s.scroll && s.scroll.scrollable, 'the list is long enough to scroll')) return;
+    ok(s.scroll.inView, `and the row is in view (list at ${s.scroll.top}, row at ${s.scroll.rowTop})`);
+    ok(s.scroll.top > 0, 'which it could not be at the top of the list');
+
+    // The first song is above the fold already, so nothing should move.
+    const first = songs[0];
+    await tab.go(first.path);
+    const f = await until('the first song', async () => {
+      const st = await tab.state();
+      return st.playing && st.rowHref === first.path ? st : null;
+    });
+    if (f) {
+      is(f.scroll.top, 0, 'a row already in view does not move the list');
+      ok(f.scroll.inView, 'and is in view');
+    }
+
+    /* Pressing a row is a press on something already on screen, and a track
+       ending into the next one must not move the list out from under whoever
+       is reading further down it. */
+    await tab.eval("document.getElementById('tracks').scrollTop = 0");
+    await tab.eval("document.getElementById('next').click()");
+    const stepped = await until('the transport to step on', async () => {
+      const st = await tab.state();
+      return st.rowHref && st.rowHref !== first.path ? st : null;
+    });
+    if (stepped) is(stepped.scroll.top, 0, 'stepping with the transport leaves the list alone');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
+/* The desktop's own theme, as omarchy-theme-sync publishes it: the palette
+   goes onto <html> as --omarchy-* properties, which is the extension's whole
+   contract with a page. This writes them the way it would. */
+const ETHEREAL = { background: '#060b1e', bright_foreground: '#ffcead', accent: '#7d82d9', selection: '#252e56' };
+const GRUVBOX = { background: '#282828', bright_foreground: '#d4be98', accent: '#7daea3', selection: '#504945' };
+
+async function desktopTheme() {
+  section('wearing the desktop theme');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    await tab.go('/');
+    // The menu is the deck's, so waiting for it is waiting for the deck. Rows
+    // are in the page before that and say nothing about whether it has run.
+    let s = await until('the deck to build the theme menu', async () => {
+      const st = await tab.state();
+      return st.skins.length ? st : null;
+    });
+    if (!s) return;
+
+    // Without the extension there is no such theme, and the list is the list.
+    is(s.skins.length, 24, 'no extension, no desktop theme');
+    is(s.skins[0], 'green', 'and the list is the list');
+
+    const publish = async (palette, name) => {
+      await tab.eval(`(function () {
+        var r = document.documentElement;
+        ${Object.entries(palette).map(([k, v]) =>
+          `r.style.setProperty('--omarchy-${k.replace(/_/g, '-')}', '${v}');`).join('\n        ')}
+        r.dataset.omarchyTheme = ${JSON.stringify(name)};
+        document.dispatchEvent(new Event('omarchythemechange'));
+      })()`);
+      return tab.eval(`(function () {
+        var r = getComputedStyle(document.documentElement);
+        return { bg: r.getPropertyValue('--bg').trim(), fg: r.getPropertyValue('--fg').trim(),
+                 ac: r.getPropertyValue('--ac').trim(), bd: r.getPropertyValue('--bd').trim(),
+                 skin: (document.getElementById('skinName') || {}).textContent,
+                 first: (document.querySelector('#themeMenu li') || {}).dataset.skin,
+                 count: document.querySelectorAll('#themeMenu li').length,
+                 meta: (document.querySelector('meta[name=theme-color]') || {}).content };
+      })()`);
+    };
+
+    let d = await publish(ETHEREAL, 'ethereal');
+    is(d.count, 25, 'the palette lands and the deck gains a theme');
+    is(d.first, 'desktop', 'first in the list, because it is the one you are wearing');
+    is(d.skin, 'desktop · ethereal', 'and the picker names the theme the desktop is on');
+    is(d.bg, ETHEREAL.background, 'the ground is the desktop background');
+    is(d.fg, ETHEREAL.bright_foreground, 'the ink is its bright foreground');
+    is(d.ac, ETHEREAL.accent, 'the accent is its accent');
+    is(d.bd, ETHEREAL.selection, 'the line is its selection');
+    is(d.meta, ETHEREAL.background, 'and the browser chrome follows the ground');
+
+    // Switching the desktop theme repaints without a reload, which is the point.
+    d = await publish(GRUVBOX, 'gruvbox');
+    is(d.skin, 'desktop · gruvbox', 'a desktop theme change is followed');
+    is(d.bg, GRUVBOX.background, 'and repaints without a reload');
+    is(d.ac, GRUVBOX.accent, 'accent too');
+
+    // Picking one of the twenty-four pins it against the desktop.
+    await tab.eval(`Array.prototype.find.call(
+      document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin === 'nord'; }).querySelector('button').click()`);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'a theme picked by hand is not overruled by the desktop');
+    ok(d.bg !== ETHEREAL.background, 'and keeps its own ground');
+
+    // ...and survives a reload, still against a palette that is right there.
+    await tab.go('/');
+    await until('the deck again', async () => (await tab.state()).rows || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'and is still pinned on the next visit');
+
+    /* The deck writes the theme it painted on every paint, so a returning
+       listener always has one stored whether they ever picked it or not.
+       That is not a choice, and the desktop's own theme outranks it. */
+    await tab.eval(`(function () {
+      localStorage.removeItem('omarchy-radio-skin-pinned');
+      localStorage.setItem('omarchy-radio-skin', 'nord');
+    })()`);
+    await tab.go('/');
+    await until('the deck once more', async () => (await tab.state()).skins.length || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'desktop · ethereal',
+       'a theme the deck merely stored is not a choice, and the desktop wins');
+    is(d.bg, ETHEREAL.background, 'and the ground is the desktop ground');
+
+    // Picking "desktop" is how you go back to following the machine.
+    await tab.eval(`(function () {
+      localStorage.setItem('omarchy-radio-skin-pinned', 'nord');
+    })()`);
+    await tab.go('/');
+    await until('the deck a last time', async () => (await tab.state()).skins.length || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'pinned again');
+    await tab.eval(`Array.prototype.find.call(
+      document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin === 'desktop'; }).querySelector('button').click()`);
+    d = await publish(GRUVBOX, 'gruvbox');
+    is(d.skin, 'desktop · gruvbox', 'and picking desktop follows the machine again');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
 
 async function autoplayAllowed({ songs, eps }) {
   section('with autoplay allowed, the way a browser treats a site somebody uses');
@@ -586,29 +908,34 @@ async function autoplayRefused({ songs }) {
     const wanted = songs[1];
     await tab.go(wanted.path);
 
-    let s = await until('the deck to ask for a press', async () => {
-      const st = await tab.state();
-      return /to start/.test(st.status) ? st : null;
-    });
-    if (s) {
-      ok(/click anywhere to start|tap anywhere to start/.test(s.status),
-         `it says what to do: "${s.status.trim()}"`);
-      ok(s.refused.includes('NotAllowedError'), 'the refusal is the one it acted on');
-      is(s.playing, false, 'and nothing is playing yet');
-      is(s.path, wanted.path, 'the address still names the song that was asked for');
-      is(s.row, wanted.title, 'and its row is the one lit');
-    }
-
-    // A press anywhere that is not itself a control: the deck owes this
-    // listener a song, and this is what pays it.
-    await tab.click('.lcd');
-    s = await until('the owed song to play', async () => {
+    /* No browser grants an audible autoplay here, and every one of them
+       allows a muted one. So the deck plays: no press, no asking. */
+    let s = await until('the deck to play without being pressed', async () => {
       const st = await tab.state();
       return st.playing && st.at > 0 ? st : null;
     });
+    if (!s) return;
+
+    is(s.muted, true, 'it is playing, and it is muted, having been refused the sound');
+    ok(s.refused.includes('NotAllowedError'), 'the refusal is the one it acted on');
+    ok(/muted/.test(s.status), `and the status says which kind of playing ("${s.status.trim()}")`);
+    console.log(`  it says: ${JSON.stringify(s.status.trim())}`);
+    ok(decodeURIComponent(s.src).includes(wanted.file), 'it is the song the link named');
+    is(s.path, wanted.path, 'the address still names it');
+    is(s.row, wanted.title, 'and its row is the one lit');
+
+    // A press anywhere that is not itself a control: this is what buys sound.
+    const wasAt = s.at;
+    await tab.click('.lcd');
+    s = await until('the sound to come on', async () => {
+      const st = await tab.state();
+      return st.playing && st.muted === false ? st : null;
+    });
     if (s) {
-      ok(decodeURIComponent(s.src).includes(wanted.file),
-         'the press pays back the song the link named');
+      is(s.muted, false, 'a press anywhere turns the sound on');
+      is(s.status.trim(), 'playing', 'and the status stops qualifying it');
+      ok(s.at >= wasAt, `it carries on from where it was, not from the top (${wasAt} -> ${s.at})`);
+      ok(decodeURIComponent(s.src).includes(wanted.file), 'still the same song');
       is(s.path, wanted.path, 'and the address is unchanged');
     }
   } finally {
@@ -659,7 +986,18 @@ async function offline({ songs }) {
     if (s) {
       is(s.path, unseen.path, 'the address survives being answered by the shell');
       is(s.row, unseen.title, 'and the deck routes to the song that was asked for');
-      ok(s.rows > 1, `the playlist came out of the cache (${s.rows} rows)`);
+      /* A row on screen is not yet evidence that the deck read a list: every
+         page arrives with rows already in it — the shell with all of them, a
+         permalink with the one it is for — and which of the two the worker
+         answers with depends on what it had cached. The list is what is under
+         test here, and it comes out of the cache a moment after the paint, so
+         this waits for it rather than reading the prerendered row and calling
+         it a miss. */
+      const full = await until('the playlist to arrive from the cache', async () => {
+        const st = await tab.eval('window.__state ? window.__state() : null');
+        return st && st.rows > 1 ? st : null;
+      }, 10000);
+      if (full) ok(full.rows > 1, `the playlist came out of the cache (${full.rows} rows)`);
     }
     await tab.send('Network.emulateNetworkConditions', {
       offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
@@ -681,6 +1019,10 @@ try {
   console.log(`${site.songs.length} songs, ${site.eps.length} episodes`);
   await autoplayAllowed(site);
   await autoplayRefused(site);
+  await find(site);
+  await reveal(site);
+  await stalePlaylist(site);
+  await desktopTheme();
   await offline(site);
   console.log(`  ${passed - mark} checks`);
   console.log(`\n${passed} checks passed`);
