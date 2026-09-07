@@ -217,8 +217,10 @@ than by a doc:
 - **Fixed canvas.** 1180×880, scaled by `--fit`, set inline before first paint.
   Below 900px it reflows to one fluid column via `display: contents`.
 - **Square and flat.** `style.css` contains **zero** `box-shadow`s, exactly one
-  `border-radius` (2px, on the explicit badge), and three gradients (the scanline
-  overlay, the marquee mask, the phone knob track).
+  `border-radius` (2px, on the explicit badge), and its gradients are all
+  lattices or masks rather than shading: the scanline overlay, the marquee
+  mask, the phone knob track, and the two that draw the meter's bricks and the
+  three zones they are coloured by.
 - **Three faces.** JetBrains Mono by default, Space Grotesk for track titles,
   VT323 for anything that reads as a readout — the 62px marquee, the clock, row
   numbers, knob values, lyric timestamps.
@@ -420,6 +422,51 @@ And it stays out of the address. Every other thing the deck does to what is on
 screen is written into the path, because those are places somebody can be
 sent; a half-typed query is not one, and a canonical link to one would be
 worse than useless.
+
+## The meter, and being sent to a song
+
+Two smaller things came out of the same idea as the field.
+
+**The meter is bricks.** The bars under the clock were continuous fills with a
+percentage height. They are a stack of bricks on a fixed lattice now, and a
+column is a whole number of them — `frame()` rounds to `METER_SEGS` and hands
+CSS the count as `calc(var(--seg) * n)`, which is the one place the deck lets
+the stylesheet do the arithmetic and the reason a narrow layout can change the
+pitch on one line without the deck knowing.
+
+The lattice is drawn `to top` so it starts at the bottom of the box, and the
+boxes are bottom-aligned: anchored anywhere else the gaps would slide against
+each other as a column grew. The gaps are painted in `--lcd` rather than left
+transparent, so a brick is hard-edged against the ground the way a field cell
+is.
+
+The colour is the theme's, in three zones and one hue: `--g1` for the quiet
+body, `--ac` through the middle, `--acHi` at the top. Those are the LCD's own
+accent mixes rather than the deck's — this panel has a ground of its own, and
+the tokens mixed toward `--bg` are the wrong family for it. Depth comes from
+which ink a brick wears, never from opacity, which is the field's rule and the
+reason the two look related. On a light theme `--acHi` darkens rather than
+lightens, so "hot" stays "more contrast" without anything being special-cased.
+
+**A link lands on its song.** Following a permalink to the twenty-seventh song
+opened the list at the top of it. `revealNamedRow()` brings it into view, and
+two things about it are worth writing down.
+
+It holds a *key*, not a flag. A permalink paints three times before the list
+is the real one — the item baked into the page, then the manifest landing while
+the row still marked as playing is whatever index the seeded copy had, then the
+real position. A bare flag is spent on the middle paint and scrolls to the
+wrong row; the test caught exactly that.
+
+And it is spent only by a paint that could act on it. The first of those three
+has one row and nothing to scroll, so a list shorter than the room it has is
+read as "not the list this will end up being" and the answer is left to a later
+paint.
+
+It is deliberately narrow. A press on a row is a press on something already on
+screen, and a track running into the next one must not move the list out from
+under whoever is reading further down it — the same rule about whose scroller
+it is that the lyric sheet follows with `handScrolled`.
 
 ## The readout, played back as tape
 

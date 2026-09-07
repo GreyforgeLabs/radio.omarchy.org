@@ -29,9 +29,18 @@ import { initLcdTape, tearTape } from './lcd-vhs.ts';
 
 var ITUNES_NS = 'http://www.itunes.com/dtds/podcast-1.0.dtd';
 var BAR_COUNT = 56;
+/* How many bricks a band can light. Has to agree with --segs on .vis, which
+   is what gives the meter its height; the pitch itself is the stylesheet's. */
+var METER_SEGS = 12;
 var CANVAS_W = 1180;
 var CANVAS_H = 880;
 var STORE_KEY = 'omarchy-radio-skin';
+/* Which theme the listener *chose*, as against which one the deck last
+   happened to apply — STORE_KEY is written on every paint, so it says nothing
+   about whether anybody picked it. The difference is what decides whether the
+   desktop's own theme may take over: it is the default when it is on offer,
+   and a default is what you get until you say otherwise. */
+var STORE_PIN = 'omarchy-radio-skin-pinned';
 var STORE_TRACKS = 'omarchy-radio-playlist';
 var STORE_STORIES = 'omarchy-radio-stories';
 
@@ -140,13 +149,23 @@ function skinNamed(name: string): Skin {
   return skins[0]!;
 }
 
-/** What the listener last chose, if it is still a theme this deck has. */
-var chosenSkin = '';
+/** The theme the deck last painted, which is where a visit with no desktop
+    palette picks up from. */
+var restored = '';
+/** The theme the listener picked out of the menu, if they ever did. */
+var pinned = '';
 try {
-  var saved = localStorage.getItem(STORE_KEY);
-  if (saved) chosenSkin = saved;
-  if (saved && SKINS.some(function (k) { return k.name === saved; })) S.skin = saved;
+  restored = localStorage.getItem(STORE_KEY) || '';
+  pinned = localStorage.getItem(STORE_PIN) || '';
 } catch (e) { /* private mode */ }
+
+var start = pinned || restored;
+if (start && SKINS.some(function (k) { return k.name === start; })) S.skin = start;
+
+/** Whether the desktop's theme, when there is one, is what to wear. */
+function followsDesktop(): boolean {
+  return !pinned || pinned === DESKTOP;
+}
 
 var lev = new Float32Array(BAR_COUNT);
 // The derived theme, held rather than recomputed for every frame the field
@@ -166,6 +185,15 @@ var wiring = false; // an audio graph waiting on its context to start
 /** An autoplay the browser refused, waiting for a gesture. */
 var armed: { src: string; mode: Mode; ti: number } | null = null;
 var linkPending = false; // a link named a track; the lists decide which
+/* The key of an item an address named, until the list has actually shown it.
+ *
+ * A key rather than a flag, because of what a permalink does on the way in.
+ * It paints three times: once with the item baked into the page and nothing
+ * else, once when the manifest lands — where the row still marked as playing
+ * is whatever index the seeded copy had, which is not this song — and once
+ * more when the real list has said where the song really sits. A bare flag
+ * gets spent on the middle one and scrolls to the wrong row. */
+var revealKey = '';
 /* Whether the listener named the item that is playing, by following a link
    or pressing a row, as against the deck having started the playlist by
    itself. Only a named item takes over the address: /, /playlist and
@@ -202,6 +230,10 @@ var el = {} as Els;
 // so in the list without rebuilding it: the list is also what the listener
 // is reading, and a rebuild throws away their scroll position.
 var stateCell: HTMLElement | null = null;
+/** The row that cell sits in, for the one thing that wants the whole row. */
+var playingRow: HTMLElement | null = null;
+/** And which item that row is, which is not always the one being looked for. */
+var playingKey = '';
 
 /* ── theme application ───────────────────────────────── */
 
@@ -257,26 +289,44 @@ function applyTheme() {
  * the whole point of following one. */
 function onDesktopPalette(skin: Skin | null) {
   var had = skins[0]!.name === DESKTOP;
+
   if (!skin) {
     // The extension was there and the palette went away: a stopped host, or
     // the theme was uninstalled. Fall back to the list.
     if (!had) return;
     skins = SKINS.slice();
-    if (S.skin === DESKTOP) S.skin = chosenSkin && chosenSkin !== DESKTOP
-      ? chosenSkin
-      : SKINS[0]!.name;
-    buildThemeMenu();
-    applyTheme();
+    if (S.skin === DESKTOP) {
+      var back = pinned && pinned !== DESKTOP ? pinned : restored;
+      S.skin = back && SKINS.some(function (k) { return k.name === back; })
+        ? back
+        : SKINS[0]!.name;
+    }
+    repaintTheme();
     return;
   }
 
   var was = had ? skins[0]! : null;
   skins = [skin].concat(SKINS);
-  // Nothing to repaint if it is the same palette under the same name.
-  if (was && was.bg === skin.bg && was.fg === skin.fg &&
-      was.ac === skin.ac && was.bd === skin.bd && S.skin !== DESKTOP) return;
+  /* On offer and nobody has said otherwise: this is the theme to wear. The
+     machine is running it, and a deck that looks like the desktop it is
+     playing on is the whole of the idea. */
+  if (followsDesktop()) S.skin = DESKTOP;
 
-  if (!had && !chosenSkin) S.skin = DESKTOP; // a first visit follows the desktop
+  // Nothing to repaint if it is the same palette, and it was already on.
+  if (was && S.skin !== DESKTOP &&
+      was.bg === skin.bg && was.fg === skin.fg &&
+      was.ac === skin.ac && was.bd === skin.bd) return;
+
+  repaintTheme();
+}
+
+/* boot() builds the menu and paints the theme itself, straight after the
+   first palette lands. Doing it twice would throw the menu away and rebuild
+   it before anything had been on screen. */
+var booted = false;
+
+function repaintTheme() {
+  if (!booted) return;
   buildThemeMenu();
   applyTheme();
 }
@@ -308,7 +358,11 @@ function buildThemeMenu() {
     b.querySelector('.menu-name')!.textContent = skinLabel(d.name);
     b.addEventListener('click', function () {
       S.skin = d.name;
-      chosenSkin = d.name;
+      /* Picked by hand, so it stays picked — including "desktop", which is
+         how somebody who once pinned a theme goes back to following the
+         machine. */
+      pinned = d.name;
+      try { localStorage.setItem(STORE_PIN, pinned); } catch (e) { /* private mode */ }
       closeThemes();
       applyTheme();
     });
@@ -684,6 +738,8 @@ function queryTerms(): string[] {
 function setQuery(q: string) {
   if (S.query === q) return;
   S.query = q;
+  revealKey = ''; // whoever is typing is looking through the list themselves
+
   el.tracks.scrollTop = 0;
   paintFind();
   paintTracks();
@@ -1433,13 +1489,23 @@ function navigate(r: Route, how?: How): boolean {
   var i = indexOfKey(spec.list(), r.kind + '/' + r.slug);
   if (i < 0) return false;
 
+  /* An address that names one item out of a list: a link somebody followed,
+     the back button, a path typed by hand. Whatever the list turns out to
+     look like, that item is what the listener came for and it should be on
+     screen rather than however far down it happens to sit. */
+  revealKey = r.kind + '/' + r.slug;
+
   /* Already the one playing: the back button landing on what is in the
      room, or a second press on the row that is going. Show it, do not
      start it again — twenty minutes into an episode, that is the whole
      difference between following a link and losing your place. */
   if (S.mode === spec.mode && S.ti === i) {
     if (S.tab !== spec.tab) showTab(spec.tab, 'replace');
-    else syncRoute(how);
+    else {
+      // Nothing to repaint, so nothing else would bring it into view.
+      if (playingRow && revealNamedRow(playingRow)) revealKey = '';
+      syncRoute(how);
+    }
     return true;
   }
 
@@ -1543,12 +1609,38 @@ function pick(root: HTMLElement, sel: string): HTMLElement {
   return node;
 }
 
+/* The row the address named, brought into view.
+ *
+ * Only ever for a row somebody was sent to: a press on a row is a press on
+ * something already on screen, and a track ending into the next one must not
+ * move the list out from under whoever is reading further down it — the same
+ * rule the lyric sheet follows about whose scroller it is.
+ *
+ * Left alone when the row is already in view, so following a link to the
+ * second song does not scroll the list by four pixels to centre it. */
+/** @returns whether this was a list the question could be answered on. */
+function revealNamedRow(row: HTMLElement): boolean {
+  var box = el.tracks;
+  var top = row.offsetTop;
+  var height = row.offsetHeight;
+  if (!height) return false; // never laid out; nothing to measure yet
+  /* Nothing to scroll. Either the row is already in view, or — on a permalink
+     that has not read the manifest yet — this is not the list it is going to
+     end up being, and the answer belongs to a later paint. */
+  if (box.scrollHeight <= box.clientHeight + 1) return false;
+  if (top >= box.scrollTop && top + height <= box.scrollTop + box.clientHeight) return true;
+  box.scrollTop = Math.max(0, top - (box.clientHeight - height) / 2);
+  return true;
+}
+
 function paintTracks() {
   var list = onScreenList();
   var stories = S.tab === 'stories';
   var terms = queryTerms();
   paintTabs();
   stateCell = null;
+  playingRow = null;
+  playingKey = '';
   el.tracks.innerHTML = '';
   var frag = document.createDocumentFragment();
   var shown = 0;
@@ -1591,7 +1683,7 @@ function paintTracks() {
       : tr.artist;
     var state = pick(b, '.tr-st');
     state.textContent = on ? (S.playing ? 'playing' : 'paused') : '';
-    if (on) stateCell = state;
+    if (on) { stateCell = state; playingRow = li; playingKey = tr.key; }
 
     /* The episode playing is also the one whose row opens and closes. A
        second press on a song starts it again, which is what a three-minute
@@ -1609,6 +1701,9 @@ function paintTracks() {
       // its own, and the href is there so that they get one.
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
       ev.preventDefault();
+      // A press is a press on a row that is already on screen: nothing to
+      // reveal, and nothing later should scroll on this row's behalf.
+      revealKey = '';
       if (opens) toggleEpisode();
       else if (stories) playStory(i, 'push');
       else playTrack(i, 'push');
@@ -1640,6 +1735,16 @@ function paintTracks() {
     if (opens && S.epOpen) frag.appendChild(episodeBody(tr));
   });
   el.tracks.appendChild(frag);
+
+  /* Spent by the first paint that could actually do something about it.
+     A permalink paints twice before the list is the real one: once with the
+     item baked into the page and nothing else, and again when the manifest
+     lands and the song turns out to be the thirty-third. The first of those
+     has one row and nothing to scroll, so spending the flag there would be
+     spending it on the paint that did not need it. */
+  if (revealKey && playingRow && playingKey === revealKey &&
+      revealNamedRow(playingRow)) revealKey = '';
+
   if (!S.lyricsOpen) paintTrackNote(terms.length ? shown : -1);
 }
 
@@ -2001,8 +2106,16 @@ function frame() {
     }
   }
 
+  /* A whole number of bricks, never a fraction of one. The pitch is the
+     stylesheet's — .vis carries it as --seg — so this hands CSS the count and
+     lets it do the multiplication, and a narrow layout can change the pitch
+     without the deck being told. */
   for (var q = 0; q < kids.length && q < n; q++) {
-    (kids[q] as HTMLElement).style.height = (4 + lev[q]! * 96).toFixed(1) + '%';
+    var lit = Math.max(1, Math.round(lev[q]! * METER_SEGS));
+    var box = kids[q] as HTMLElement;
+    if (box.dataset.lit === String(lit)) continue; // the same height as last frame
+    box.dataset.lit = String(lit);
+    box.style.height = 'calc(var(--seg) * ' + lit + ')';
   }
 
   /* A field that cannot move is still a field. It used to be skipped
@@ -2052,12 +2165,16 @@ function boot() {
     if (!(el[id] instanceof HTMLCanvasElement)) throw new Error('#' + id + ' is not a canvas');
   });
 
+  /* Fires at once if a palette is already on <html> — which is the usual
+     case, the extension writing at document_start — and again whenever the
+     desktop's theme changes. Before the menu is built, so the first thing
+     painted is already the right theme rather than green for a tick.
+     Without the extension it never fires and the deck is the twenty-four
+     themes in the list. */
+  watchDesktop(onDesktopPalette);
   buildThemeMenu();
   applyTheme();
-  /* Fires at once if a palette is already on <html>, and again whenever the
-     desktop's theme changes. Without the extension it never fires and the
-     deck is the twenty-four themes in the list. */
-  watchDesktop(onDesktopPalette);
+  booted = true;
   buildBars();
   buildAudio();
   wireGestures();

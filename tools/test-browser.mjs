@@ -128,6 +128,20 @@ window.__state = function () {
     titles: Array.prototype.map.call(document.querySelectorAll('#tracks .tr-title'),
       function (n) { return n.textContent; }),
     query: (document.getElementById('find') || {}).value || '',
+    scroll: (function () {
+      var box = document.getElementById('tracks');
+      var row = document.querySelector('#tracks li.is-on');
+      if (!box) return null;
+      var out = { top: box.scrollTop, height: box.clientHeight,
+                  scrollable: box.scrollHeight > box.clientHeight + 1, inView: null };
+      if (row) {
+        out.rowTop = row.offsetTop;
+        out.rowHeight = row.offsetHeight;
+        out.inView = row.offsetTop >= box.scrollTop &&
+          row.offsetTop + row.offsetHeight <= box.scrollTop + box.clientHeight;
+      }
+      return out;
+    })(),
     hint: (document.getElementById('findHint') || {}).textContent || '',
     skin: (document.getElementById('skinName') || {}).textContent || '',
     skins: Array.prototype.map.call(document.querySelectorAll('#themeMenu li'),
@@ -395,6 +409,56 @@ async function find({ songs }) {
   }
 }
 
+/* Following a link to a song a long way down the list.
+   A permalink arrives with one row in the page and the whole playlist a
+   moment later, so the row it named ends up wherever it sits — which for the
+   last song is well below the fold of a list that scrolls. */
+async function reveal({ songs }) {
+  section('being sent to a song down the list');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    const last = songs[songs.length - 1];
+    await tab.go(last.path);
+    const s = await until('the song, out of the whole playlist', async () => {
+      const st = await tab.state();
+      return st.playing && st.rows >= songs.length ? st : null;
+    });
+    if (!s) return;
+
+    is(s.rowHref, last.path, 'the row the address named is the one playing');
+    if (!ok(s.scroll && s.scroll.scrollable, 'the list is long enough to scroll')) return;
+    ok(s.scroll.inView, `and the row is in view (list at ${s.scroll.top}, row at ${s.scroll.rowTop})`);
+    ok(s.scroll.top > 0, 'which it could not be at the top of the list');
+
+    // The first song is above the fold already, so nothing should move.
+    const first = songs[0];
+    await tab.go(first.path);
+    const f = await until('the first song', async () => {
+      const st = await tab.state();
+      return st.playing && st.rowHref === first.path ? st : null;
+    });
+    if (f) {
+      is(f.scroll.top, 0, 'a row already in view does not move the list');
+      ok(f.scroll.inView, 'and is in view');
+    }
+
+    /* Pressing a row is a press on something already on screen, and a track
+       ending into the next one must not move the list out from under whoever
+       is reading further down it. */
+    await tab.eval("document.getElementById('tracks').scrollTop = 0");
+    await tab.eval("document.getElementById('next').click()");
+    const stepped = await until('the transport to step on', async () => {
+      const st = await tab.state();
+      return st.rowHref && st.rowHref !== first.path ? st : null;
+    });
+    if (stepped) is(stepped.scroll.top, 0, 'stepping with the transport leaves the list alone');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
 /* The desktop's own theme, as omarchy-theme-sync publishes it: the palette
    goes onto <html> as --omarchy-* properties, which is the extension's whole
    contract with a page. This writes them the way it would. */
@@ -407,9 +471,11 @@ async function desktopTheme() {
   const tab = await browser.tab();
   try {
     await tab.go('/');
-    let s = await until('the deck', async () => {
+    // The menu is the deck's, so waiting for it is waiting for the deck. Rows
+    // are in the page before that and say nothing about whether it has run.
+    let s = await until('the deck to build the theme menu', async () => {
       const st = await tab.state();
-      return st.rows ? st : null;
+      return st.skins.length ? st : null;
     });
     if (!s) return;
 
@@ -459,6 +525,40 @@ async function desktopTheme() {
     d = await publish(ETHEREAL, 'ethereal');
     is(d.skin, 'nord', 'a theme picked by hand is not overruled by the desktop');
     ok(d.bg !== ETHEREAL.background, 'and keeps its own ground');
+
+    // ...and survives a reload, still against a palette that is right there.
+    await tab.go('/');
+    await until('the deck again', async () => (await tab.state()).rows || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'and is still pinned on the next visit');
+
+    /* The deck writes the theme it painted on every paint, so a returning
+       listener always has one stored whether they ever picked it or not.
+       That is not a choice, and the desktop's own theme outranks it. */
+    await tab.eval(`(function () {
+      localStorage.removeItem('omarchy-radio-skin-pinned');
+      localStorage.setItem('omarchy-radio-skin', 'nord');
+    })()`);
+    await tab.go('/');
+    await until('the deck once more', async () => (await tab.state()).skins.length || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'desktop · ethereal',
+       'a theme the deck merely stored is not a choice, and the desktop wins');
+    is(d.bg, ETHEREAL.background, 'and the ground is the desktop ground');
+
+    // Picking "desktop" is how you go back to following the machine.
+    await tab.eval(`(function () {
+      localStorage.setItem('omarchy-radio-skin-pinned', 'nord');
+    })()`);
+    await tab.go('/');
+    await until('the deck a last time', async () => (await tab.state()).skins.length || null);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'pinned again');
+    await tab.eval(`Array.prototype.find.call(
+      document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin === 'desktop'; }).querySelector('button').click()`);
+    d = await publish(GRUVBOX, 'gruvbox');
+    is(d.skin, 'desktop · gruvbox', 'and picking desktop follows the machine again');
   } finally {
     await tab.close();
     await browser.close();
@@ -842,6 +942,7 @@ try {
   await autoplayAllowed(site);
   await autoplayRefused(site);
   await find(site);
+  await reveal(site);
   await desktopTheme();
   await offline(site);
   console.log(`  ${passed - mark} checks`);

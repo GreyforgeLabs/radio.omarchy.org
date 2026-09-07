@@ -1,5 +1,7 @@
 ---
-/* The header: the mark, the wordmark, and a way back to the desktop. */
+/* The header: the mark, the wordmark, a way back to the desktop, and — in the
+   line that says every song is a pull request — the way to send one. */
+import { SUBMIT } from '../lib/site.ts';
 ---
 <header class="bar">
   <div class="bar-l">
@@ -10,6 +12,6 @@
     <a class="home" href="https://omarchy.org" target="_blank" rel="noopener">omarchy.org &#8599;</a>
   </div>
   <div class="bar-r">
-    <p class="tagline">every song a pull request</p>
+    <p class="tagline"><a href={SUBMIT} target="_blank" rel="noopener">every song a pull request &#8599;</a></p>
   </div>
 </header>

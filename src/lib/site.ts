@@ -31,6 +31,13 @@ export const STORIES_FEED = '/stories/feed.rss';
 export const SHOW_FEED = 'https://api.riverside.com/hosting/1i59HjrN.rss';
 export const STORIES_TAG = 'from the community';
 
+/* Where the songs come from. Every one of them arrived as a pull request, so
+   the line in the header that says so is the way to the place you send one.
+   tracks/README.md is the three lines of JSON, not the repository front page:
+   somebody reading that line wants to know how, not what the licence is. */
+export const REPO = 'https://github.com/omacom/radio.omarchy.org';
+export const SUBMIT = REPO + '/blob/main/public/tracks/README.md';
+
 /** What the deck calls itself while a song is playing out of the playlist. */
 export const STATION = { name: 'Omarchy', tag: 'community playlist' };
 

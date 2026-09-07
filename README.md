@@ -32,6 +32,14 @@ You do not have to write any of it. Add a song and the build writes its page; th
 
 An address is spelled by one rule, in [src/lib/slug.ts](src/lib/slug.ts), and both halves import it: the build names the file, the deck works out which song a path means. They cannot disagree, because there is nothing to disagree with.
 
+## Being sent to a song
+
+Following a link to the twenty-seventh song used to open the list at the top
+of it, which is not what the link promised. The row the address names is
+brought into view now — and only that: pressing a row is a press on something
+already on screen, and a track ending into the next one leaves the list where
+whoever is reading it left it.
+
 ## Finding a song
 
 Thirty-odd songs is a list you read; a hundred is a list you search. **find**
@@ -78,6 +86,17 @@ follows, and the named one pins.
 
 The extension only lets `omarchy.org` itself *set* themes, so this is a
 one-way follow. Reading is open to any page.
+
+## The meter
+
+The bars under the clock are a stereo's meter rather than a graph: each band
+is a stack of bricks on a fixed lattice, a brick is on or off, and a column
+is always a whole number of them. Three zones, one hue — the accent mixed
+toward the LCD's own ground for the quiet body, the accent itself through the
+middle, the accent lifted off the ground at the top — so it comes out of
+whatever theme is on and reads as the same material as the field behind the
+deck. On a light theme the top of the ramp darkens instead of lightening,
+because contrast is what "hot" means.
 
 ## The podcast
 

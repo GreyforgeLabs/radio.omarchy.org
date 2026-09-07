@@ -182,13 +182,21 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 
 /* Where the listener count used to be. Those numbers counted a stream that
    no longer exists; this says what the deck is instead. */
+/* Where the listener count used to be, and now the way to send a song: the
+   line has always claimed every one of them arrived as a pull request, so it
+   may as well be the door. Dressed like the other link in this bar rather
+   than like a link, because it is a slogan first. */
 .tagline {
   font-size: 10px;
   letter-spacing: .24em;
   text-transform: uppercase;
-  color: var(--c2);
   white-space: nowrap;
 }
+.tagline a {
+  color: var(--c2);
+  border-bottom: 1px solid var(--bd);
+}
+.tagline a:hover { color: var(--ac); border-color: var(--ac); }
 
 .pulse {
   width: 7px;
@@ -390,18 +398,56 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 .cur { font-size: 30px; line-height: 1; }
 .dur { font-size: 17px; color: var(--g2); }
 
+/* ── the meter ───────────────────────────────────────────
+   A stereo's meter, not a graph: each band is a stack of bricks on a fixed
+   lattice and a brick is on or off, which is the same rule the field's cells
+   follow. --seg is the pitch and --brick the lit part of it, so the gaps are
+   the lattice showing through rather than anything drawn.
+
+   The gradient runs `to top`, which starts it at the bottom of the box — and
+   the boxes are bottom-aligned, so the lattice does not move as a column
+   grows. Anchored anywhere else the bricks would slide against each other.
+
+   frame() sets the height as `calc(var(--seg) * n)` for a whole number of
+   bricks, so a column never ends halfway through one. It is the only place
+   the deck lets CSS do the arithmetic, and it is why the phone can change the
+   pitch on one line without the deck knowing. */
+
 .vis {
+  --segs: 12;
+  --seg: 7px;
+  --brick: 5px;
   display: flex;
   align-items: flex-end;
   gap: 3px;
-  height: 84px;
+  height: calc(var(--seg) * var(--segs));
   margin-top: 16px;
 }
+/* Three zones, the way a stereo's meter has three, and one hue: the accent
+   mixed toward the LCD's own ground for the quiet body, the accent itself
+   through the middle, and the accent lifted off it at the top. Depth comes
+   from which ink a brick wears, never from opacity — the same rule the field
+   follows, and the reason the meter and the ground look related.
+   --g1 and --acHi are the LCD's, not the deck's: this panel has a ground of
+   its own, and the tokens mixed toward --bg would be the wrong family. */
 .vis span {
   flex: 1;
-  height: 5%;
-  background: var(--ac);
-  min-height: 2px;
+  /* One brick at rest, so the meter reads as a meter before there is sound. */
+  height: var(--seg);
+  background-image:
+    /* The lattice, painted as gaps in the LCD's ground rather than as holes,
+       so a brick is hard-edged against it. */
+    repeating-linear-gradient(
+      to top,
+      transparent 0 var(--brick),
+      var(--lcd) var(--brick) var(--seg)),
+    /* The zones. Measured in bricks from the bottom, not in percentages of a
+       box whose height is the thing that changes. */
+    linear-gradient(
+      to top,
+      var(--g1) 0 calc(var(--seg) * 6),
+      var(--ac) calc(var(--seg) * 6) calc(var(--seg) * 10),
+      var(--acHi) calc(var(--seg) * 10) 100%);
 }
 
 /* ── transport ───────────────────────────────────────── */
@@ -629,7 +675,14 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 }
 .ta-r { text-align: right; }
 
+/* position: relative is not for anything drawn: it makes the scroller the
+   offsetParent of its own rows, so a row's offsetTop is its distance down the
+   list. That is what revealNamedRow() measures, and it is a layout number
+   rather than a screen one — which matters, because the whole deck is inside
+   a transform: scale() and a rect would come back multiplied by it while
+   scrollTop stays in layout pixels. */
 .tracks {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -991,7 +1044,7 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
   .cur { font-size: 24px; }
   .dur { font-size: 14px; }
   .marq-txt { font-size: 44px; }
-  .vis { height: 60px; }
+  .vis { --seg: 6px; --brick: 4px; }
   .transport { padding: 14px 16px; }
   .seek { order: 3; width: 100%; flex-basis: 100%; }
   .knobs { margin-left: 0; width: 100%; justify-content: space-between; }
@@ -1046,7 +1099,6 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 
   /* The marquee sat 2px off the line beneath it. */
   .marq-clip { margin: 8px 0 12px; }
-  .vis { height: 72px; }
 
 }
 
