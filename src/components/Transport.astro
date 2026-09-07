@@ -1,13 +1,18 @@
 ---
 /* The controls. These stay ordinary DOM: a shader that moves a button's
- * picture without moving its hit box is a button that misses. */
+ * picture without moving its hit box is a button that misses.
+ *
+ * The play button carries both faces and shows one: the deck flips a class
+ * rather than rewriting the button, so nothing here is drawn twice or drawn
+ * in JavaScript. */
+import Icon from './Icon.astro';
 ---
 <section class="transport" aria-label="Playback controls">
   <div class="tbtns">
-    <button type="button" class="tb" id="prev" aria-label="Previous track">&#9664;&#9664;</button>
-    <button type="button" class="tb tb-play" id="toggle" aria-label="Play or pause"><span id="playGlyph">&#9654;</span></button>
-    <button type="button" class="tb" id="stop" aria-label="Stop">&#9632;</button>
-    <button type="button" class="tb" id="next" aria-label="Next track">&#9654;&#9654;</button>
+    <button type="button" class="tb" id="prev" aria-label="Previous track"><Icon name="prev" /></button>
+    <button type="button" class="tb tb-play" id="toggle" aria-label="Play or pause"><Icon name="play" /><Icon name="pause" /></button>
+    <button type="button" class="tb" id="stop" aria-label="Stop"><Icon name="stop" /></button>
+    <button type="button" class="tb" id="next" aria-label="Next track"><Icon name="next" /></button>
   </div>
 
   <div class="seek" id="seek" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">

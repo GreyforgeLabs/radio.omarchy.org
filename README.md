@@ -112,6 +112,24 @@ They are slugs now, through the same rule that turns a title into an address:
 because those are what anybody actually reads. The filename is plumbing, and
 `npm test` holds it to that shape so it cannot drift back.
 
+## The icons are drawn
+
+The transport was characters — `▶` `◀◀` `■` `❙❙`, plus the carets and the
+arrow that says a link leaves the site — and **not one of them is in a subset
+this site ships.** JetBrains Mono arrives here as latin and latin-ext;
+geometric shapes and arrows are in neither, so the deck's most important
+controls were being drawn by whatever font each platform fell back to. Two of
+them, `▶` and `◀`, are in Unicode's emoji set, so a phone could render the
+play button as a colour emoji.
+
+They are bitmaps now — [`src/lib/icons.ts`](src/lib/icons.ts), cells on a
+lattice at one cell to the pixel, the same material as the 15×15 wordmark, the
+field's hard cells and the meter's bricks. A stepped triangle is the one kind
+of icon that cannot go blurry, because there is no curve in it to resolve.
+Both halves read the same table: the page puts them in, and the deck draws the
+same caret when it builds a row itself. `npm test` fails if a character ever
+comes back.
+
 ## The podcast
 
 The playlist panel has a second list: **podcast**, which is [Omarchy Stories](https://omarchystories.org), the show the community makes about running this desktop. Nothing about it lives in this repo. The player reads the show's RSS feed when it loads, so an episode appears here because it was published, not because anybody remembered to add it. Pressing one plays it, the row opens to show its chapters and what it is about, and pressing a chapter jumps there. Every episode has its own link, `radio.omarchy.org/podcast/<episode>`, the same way a song does.

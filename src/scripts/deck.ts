@@ -17,6 +17,7 @@ import {
   TRACKS_DIR, TRACKS_MANIFEST,
 } from '../lib/site.ts';
 import { assignSlugs, fold } from '../lib/slug.ts';
+import { iconSvg } from '../lib/icons.ts';
 import { dateLabel, fmt, hms, lengthLabel, plural } from '../lib/format.ts';
 import { SKINS, derive, type Skin, type Theme } from './theme.ts';
 import { DESKTOP, desktopName, watchDesktop } from './omarchy-theme.ts';
@@ -57,7 +58,7 @@ var IDS = [
   'themeBtn', 'themeMenu',
   'themeCaret', 'skinName', 'stationLabel', 'srcLabel',
   'marq', 'artist', 'curTime', 'durTime', 'vis', 'prev', 'toggle', 'stop', 'next',
-  'playGlyph', 'seek', 'seekFill', 'seekHead', 'volKnob', 'volRot', 'volLabel',
+  'seek', 'seekFill', 'seekHead', 'volKnob', 'volRot', 'volLabel',
   'playlistKind', 'playlistName', 'tracks', 'trHead', 'playlistNote',
   'status', 'seg', 'tabSongs', 'tabPodcast',
   'lyricsBtn', 'lyricsBox', 'lyrics', 'installBtn',
@@ -379,14 +380,14 @@ function openThemes() {
   S.themeOpen = true;
   el.themeMenu.hidden = false;
   el.themeBtn.setAttribute('aria-expanded', 'true');
-  el.themeCaret.textContent = '▲';
+  el.themeCaret.classList.add('is-open');
 }
 
 function closeThemes() {
   S.themeOpen = false;
   el.themeMenu.hidden = true;
   el.themeBtn.setAttribute('aria-expanded', 'false');
-  el.themeCaret.textContent = '▼';
+  el.themeCaret.classList.remove('is-open');
 }
 
 /* ── station list ────────────────────────────────────── */
@@ -1326,7 +1327,10 @@ function paintClock() {
 function paintTransport() {
   setMediaState();
   if (stateCell) stateCell.textContent = S.playing ? 'playing' : 'paused';
-  el.playGlyph.textContent = S.playing ? '❙❙' : '▶';
+  /* Both faces are in the button; the class says which one is showing. The
+     alternative is rewriting the button's contents forty times a minute to
+     say the same two things. */
+  el.toggle.classList.toggle('is-playing', S.playing);
   el.toggle.setAttribute('aria-label', S.playing ? 'Pause' : 'Play');
   el.volRot.style.transform = 'rotate(' + (-135 + S.vol * 270) + 'deg)';
   el.volLabel.textContent = String(Math.round(S.vol * 100));
@@ -1708,7 +1712,8 @@ function paintTracks() {
     if (opens) {
       var caret = pick(b, '.tr-c');
       caret.hidden = false;
-      caret.textContent = S.epOpen ? '▾' : '▸';
+      // The same table the page's own icons come out of.
+      caret.innerHTML = iconSvg(S.epOpen ? 'caret-down' : 'caret-right');
       b.setAttribute('aria-expanded', S.epOpen ? 'true' : 'false');
     }
     b.addEventListener('click', function (ev) {

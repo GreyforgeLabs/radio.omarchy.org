@@ -514,6 +514,35 @@ compares the two rather than trusting them: it reads the properties out of
 `applyTheme()` itself, so the list of what to check is not a third copy to keep
 by hand either.
 
+## The icons were never being drawn by us
+
+The transport's glyphs — `▶` `◀◀` `■` `❙❙`, the two carets, the arrow on an
+outbound link — are all outside latin and latin-ext, which is the whole of
+what this site subsets. So the deck shipped three carefully cut webfaces and
+then drew its four most important controls out of whatever the platform fell
+back to. `❙❙` (U+2759 MEDIUM VERTICAL BAR) is a particularly poor bet; `▶` and
+`◀` are worse, being in Unicode's emoji set, where a phone is entitled to
+render the play button in colour.
+
+They are cells on a lattice now, in `src/lib/icons.ts`. That was not a style
+decision so much as the only one consistent with everything else here: the
+wordmark is a 15×15 bitmap of axis-aligned rects, the field is hard on-or-off
+cells, the meter is bricks, and omarchy.org's small labels are a 3×5 pixel
+font. A stepped triangle is the same material — and it is the one icon that
+cannot go blurry, because there is no curve in it to resolve. One cell to one
+CSS pixel with `shape-rendering="crispEdges"`, so the steps land on the grid.
+
+Two of them have two faces, and both are in the page with a class deciding
+which shows: rewriting a button's contents forty times a minute to say the
+same two things is work for nothing, and it keeps drawing out of the deck. The
+one icon the deck does draw is the caret on an episode's row, because the deck
+builds that row — and it draws it from the same table, the way the build and
+the browser share the slug rule.
+
+Prev and next are two triangles rather than a bar and one. A disc player marks
+skip with the bar; a tape deck marks it with the pair, and this deck has a
+tape on its readout.
+
 ## The readout, played back as tape
 
 One thing was added: the LCD is drawn through [Canvas UI](https://canvasui.dev)'s

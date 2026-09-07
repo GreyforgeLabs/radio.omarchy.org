@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { assignSlugs, fold, slugify } from '../src/lib/slug.ts';
 import { SKINS, derive } from '../src/scripts/theme.ts';
+import { ICONS } from '../src/lib/icons.ts';
 /* The parsing, not the reading: the build imports the manifest and the feed
    through Vite, which plain node knows nothing about. This is the same code
    over the same two files. */
@@ -256,6 +257,30 @@ function foldRule() {
   console.log(`  ${FOLDS.length} spellings, all folded to what a query would be`);
 }
 
+/* The characters the deck used to draw its controls with. Every one of them
+   falls outside latin and latin-ext, which is all this site ships. */
+const GLYPHS = new Set('\u25b6\u25c0\u25a0\u2759\u25bc\u25b2\u25be\u25b8\u2197');
+
+function iconRule() {
+  // The four the transport needs, both faces of the two that have two, and
+  // the arrow that says a link leaves the site.
+  for (const name of ['play', 'pause', 'stop', 'prev', 'next',
+                      'caret-down', 'caret-up', 'caret-right', 'arrow-ne']) {
+    ok(ICONS[name], `there is no icon called ${name}`);
+  }
+  for (const [name, icon] of Object.entries(ICONS)) {
+    ok(icon.cells.length > 0, `${name} is an empty icon`);
+    ok(icon.w > 0 && icon.h > 0, `${name} has no box`);
+    for (const [x, y, w, h] of icon.cells) {
+      ok(Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(w) && Number.isInteger(h),
+         `${name} has a cell off the lattice: ${[x, y, w, h]}`);
+      ok(x >= 0 && y >= 0 && x + w <= icon.w && y + h <= icon.h,
+         `${name} has a cell outside its box: ${[x, y, w, h]} in ${icon.w}x${icon.h}`);
+    }
+  }
+  console.log(`  ${Object.keys(ICONS).length} icons, every cell a whole number inside its box`);
+}
+
 function slugRule() {
   const got = assignSlugs(ADVERSARIAL.map((r) => ({ title: r.title, artist: r.artist })), 'playlist');
   for (const [i, want] of ADVERSARIAL.entries()) {
@@ -302,6 +327,9 @@ async function main() {
     await readFile(join(ROOT, 'public/stories/feed.rss'), 'utf8'));
   const eps = show.episodes;
   console.log(`${tracks.length} songs, ${eps.length} episodes`);
+
+  console.log('the icons are drawn, not typed');
+  iconRule();
 
   console.log('the rule an address is spelled by');
   slugRule();
@@ -361,6 +389,13 @@ async function main() {
       // before the deck is.
       ok(body.includes('id="find"') && body.includes('id="findHint"'),
          `${path}: no find box`);
+      /* Every icon is drawn, not typed. A character here would be drawn by
+         whatever font the browser fell back to, because none of these are in
+         a subset this site ships — and ▶ and ◀ arrive as colour emoji on
+         some phones. */
+      const typed = [...body].filter((c) => GLYPHS.has(c));
+      ok(typed.length === 0,
+         `${path}: ${JSON.stringify(typed.join(''))} is a character where an icon should be`);
     }
 
     console.log('the pages behind a permalink carry their own item');

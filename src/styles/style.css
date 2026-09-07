@@ -57,6 +57,40 @@ h1, h2, h3, p, ul, ol, li, figure { margin: 0; padding: 0; }
 ul, ol { list-style: none; }
 
 a { color: var(--ac); text-decoration: none; }
+
+/* ── icons ───────────────────────────────────────────────
+   src/lib/icons.ts, drawn as cells on a lattice at one cell to the pixel.
+   The transport used characters, and not one of them was in a subset this
+   site ships — geometric shapes and arrows are in neither latin nor
+   latin-ext, so they came from whatever font the browser fell back to, and
+   ▶ and ◀ can arrive as colour emoji on a phone.
+
+   No width or height here: each carries its own, in cells, which is what
+   keeps the steps on the pixel grid. */
+.i {
+  display: block;
+  flex: none;
+  fill: currentColor;
+}
+
+/* An icon set in a line of text sits on the baseline rather than above it. */
+.home .i, .tagline .i {
+  display: inline-block;
+  vertical-align: baseline;
+  margin-left: 2px;
+}
+
+/* Both faces of a two-state icon are in the page and one is shown: a class
+   is cheaper than rewriting a button forty times a minute, and it keeps the
+   drawing out of the deck. The showing rules are the more specific ones, so
+   they win without an !important or an ordering trick. */
+.tb-play .i-pause,
+.caret .i-caret-up,
+.tb-play.is-playing .i-play,
+.caret.is-open .i-caret-down { display: none; }
+
+.tb-play.is-playing .i-pause,
+.caret.is-open .i-caret-up { display: block; }
 a:hover { color: var(--fg); }
 
 /* The rows of the playlist are links to the tracks they name, and the deck
@@ -232,7 +266,7 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 
 .picker-name { display: flex; align-items: center; gap: 9px; }
 .sw-ac { width: 8px; height: 8px; flex: none; background: var(--ac); }
-.caret { color: var(--c2); }
+.caret { display: flex; align-items: center; color: var(--c2); }
 
 .menu {
   position: absolute;
@@ -473,7 +507,6 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
   width: 44px;
   height: 36px;
   color: var(--fg);
-  font-size: 11px;
   border: 1px solid var(--bd);
   margin-left: -1px;
 }
@@ -787,9 +820,9 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 
 /* Says the row has more under it, and which way pressing it goes. */
 .tr-c {
+  display: flex;
+  align-items: center;
   flex: none;
-  font-size: 11px;
-  letter-spacing: 0;
   color: var(--c2);
 }
 .tr-c[hidden] { display: none; }

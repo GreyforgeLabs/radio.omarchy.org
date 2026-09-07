@@ -1,6 +1,7 @@
 ---
 /* The status line, the theme picker, and the install button that only ever
  * appears once the browser has said it would actually install. */
+import Icon from './Icon.astro';
 ---
 <footer class="foot">
   <p class="status"><span class="pulse" aria-hidden="true"></span><span id="status">ready</span></p>
@@ -10,7 +11,7 @@
         <span class="sw-ac" aria-hidden="true"></span>
         <span id="skinName">green</span>
       </span>
-      <span class="caret" id="themeCaret" aria-hidden="true">&#9660;</span>
+      <span class="caret" id="themeCaret" aria-hidden="true"><Icon name="caret-down" /><Icon name="caret-up" /></span>
     </button>
     <ul class="menu" id="themeMenu" role="listbox" aria-label="Colour theme" hidden></ul>
   </div>
