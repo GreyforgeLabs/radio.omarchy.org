@@ -647,9 +647,17 @@ async function autoplayAllowed({ songs, eps }) {
     const wanted = songs[1];
     const song = wanted.path;
     await tab.go(song);
-    let s = await until('the song to start', async () => {
+    /* Playing *and* holding the whole playlist. Two things that arrive on
+       their own schedules — the seeded row plays on the first tick, the
+       manifest lands a moment later — and this section asserts about both,
+       so it has to wait for both. Against a local server the second is
+       instant and the race is never lost; over the wire the list turns up
+       around 140ms in and the poll is every 100, which is close enough to
+       lose it about half the time. That is the fourth time this file has
+       waited for one thing and asserted about another. */
+    let s = await until('the song to start, out of the whole playlist', async () => {
       const st = await tab.state();
-      return st.playing && st.at > 0 ? st : null;
+      return st.playing && st.at > 0 && st.rows >= songs.length ? st : null;
     });
     if (s) {
       is(s.path, song, 'the address stays put');
