@@ -12,6 +12,7 @@ import { noteFor, panelTitle, rowsFor } from '../lib/rows.ts';
 import type { Item, Show } from '../lib/item.ts';
 import type { Kind } from '../lib/slug.ts';
 import TrackRow from './TrackRow.astro';
+import Icon from './Icon.astro';
 
 interface Props {
   kind: Kind;
@@ -34,8 +35,8 @@ const note = noteFor(kind, list, only, show);
     <h2 class="panel-title"><span id="playlistKind">{title.kind}</span> &#8212; <span id="playlistName">{title.name}</span></h2>
     <div class="head-btns">
       <div class="seg" id="seg" hidden={!SHOW_PODCAST}>
-        <a class:list={['seg-b', { 'is-on': !podcast }]} id="tabSongs" href="/playlist" aria-current={!podcast ? 'page' : undefined}>songs</a>
-        <a class:list={['seg-b', { 'is-on': podcast }]} id="tabPodcast" href="/podcast" aria-current={podcast ? 'page' : undefined}>podcast</a>
+        <a class:list={['seg-b', { 'is-on': !podcast }]} id="tabSongs" href="/playlist" aria-current={!podcast ? 'page' : undefined}><Icon name="note" />songs</a>
+        <a class:list={['seg-b', { 'is-on': podcast }]} id="tabPodcast" href="/podcast" aria-current={podcast ? 'page' : undefined}><Icon name="mic" />podcast</a>
       </div>
       <button type="button" class="back lyr" id="lyricsBtn" aria-expanded="false" aria-controls="lyricsBox" hidden>lyrics</button>
     </div>

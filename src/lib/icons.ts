@@ -83,6 +83,26 @@ export const ICONS: Record<string, Icon> = {
     cells: [[0, 0, 1, 7], [1, 1, 1, 5], [2, 2, 1, 3], [3, 3, 1, 1]],
   },
 
+  /* The two lists. A note for the songs, a microphone for the show, both
+     drawn small enough to sit in a 10px label without shouting over it. */
+  note: {
+    w: 7, h: 9, label: 'Songs',
+    cells: [
+      [0, 6, 4, 3],          // the head, filled
+      [4, 0, 1, 7],          // the stem, off its right shoulder
+      [5, 0, 2, 1], [6, 1, 1, 2],  // and the flag
+    ],
+  },
+  mic: {
+    w: 7, h: 9, label: 'Podcast',
+    cells: [
+      [2, 0, 3, 5],          // the capsule
+      [0, 3, 1, 3], [6, 3, 1, 3],  // the cradle, down either side
+      [1, 6, 5, 1],          // its base
+      [3, 7, 1, 2],          // the stand
+    ],
+  },
+
   /* Leaves the site. The one icon that is not a shape but a sign. */
   'arrow-ne': {
     w: 7, h: 7, label: 'Opens in a new tab',

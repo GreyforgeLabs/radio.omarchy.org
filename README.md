@@ -40,6 +40,34 @@ brought into view now — and only that: pressing a row is a press on something
 already on screen, and a track ending into the next one leaves the list where
 whoever is reading it left it.
 
+## It starts itself
+
+Open the page and the deck is already playing. That took working out, because
+no browser grants an audible autoplay to a site the listener has not engaged
+with before, and there is no arguing with it.
+
+The exemption everybody quotes is that a muted autoplay is always allowed —
+and it turns out to be an exemption for `<video>`, not for `<audio>`. Measured
+under both of Chromium's restrictive policies:
+
+| | |
+| --- | --- |
+| `new Audio(src)`, `muted = true` | `NotAllowedError` |
+| `new Audio(src)`, `volume = 0` | `NotAllowedError` |
+| `<video>`, `muted = true` | plays |
+
+So the deck plays through a `<video>` element that has no picture, which is a
+perfectly ordinary thing for a media element to be: same API, same events,
+same analyser, same media session, never in the document. It also happens to
+be the only kind of element iOS would ever have autoplayed.
+
+A first visit therefore arrives with the clock running, the marquee on the
+song and the row saying playing — silently, and the footer says so. The first
+press anywhere turns the sound on **where the track has got to**, not from the
+top, because joining a song part-way through is what tuning in has always
+been. A returning listener whose browser already trusts the site gets the
+sound immediately.
+
 ## Finding a song
 
 Thirty-odd songs is a list you read; a hundred is a list you search. **find**

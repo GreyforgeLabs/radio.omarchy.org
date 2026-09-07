@@ -543,6 +543,49 @@ Prev and next are two triangles rather than a bar and one. A disc player marks
 skip with the bar; a tape deck marks it with the pair, and this deck has a
 tape on its readout.
 
+## Why the deck plays through a <video>
+
+"Click anywhere to start" was an admission of defeat, and it turned out to be
+a premature one.
+
+No browser grants an audible autoplay to a site nobody has engaged with. The
+exemption everybody quotes is that a *muted* autoplay is always allowed, and
+the deck's first attempt at this simply muted the `<audio>` element and tried
+again. It was refused. So was `volume = 0`. Measured under both of Chromium's
+restrictive policies:
+
+| attempt | result |
+| --- | --- |
+| `new Audio(src)`, `muted = true` | `NotAllowedError` |
+| `new Audio(src)`, `volume = 0` | `NotAllowedError` |
+| `<video>`, `muted = true` | plays |
+| `<video>`, `muted = true`, in the document | plays |
+
+The exemption is for `<video>`. That reads like a loophole and is not really
+one: a media element with no picture is an ordinary thing for a `<video>` to
+be, and nothing else about it changes — the same `HTMLMediaElement` API, the
+same events, the same `createMediaElementSource`, the same media session, and
+still never in the document, so there is no frame to lay out. `playsInline`
+is there for iOS, which would otherwise take a `play()` for a request to go
+fullscreen, and which is also the platform where an `<audio>` element could
+never have autoplayed at all.
+
+So a first visit arrives playing. `silence()` is the refusal handler and it
+plays rather than asks; the status says which kind of playing it is; and the
+first gesture calls `unsilence()`, which turns the sound on **where the track
+has got to**. Not from the top: the clock and the marquee have been visibly
+running, and restarting would contradict what the listener has been watching.
+Joining part-way through is what a radio is.
+
+Every `play()` sets `muted = false` first, so being silenced once is not being
+silenced for good — a press earns an audible attempt where an arrival did not,
+which is why pressing *next* while silent simply comes up with sound. And
+`arm()` is still there, for the case where even the muted attempt is refused.
+
+The one press that does not mean what its button says is play, while the deck
+is playing silently: there it means "sound". The status line is what asked for
+it, so it is not a guess.
+
 ## The readout, played back as tape
 
 One thing was added: the LCD is drawn through [Canvas UI](https://canvasui.dev)'s

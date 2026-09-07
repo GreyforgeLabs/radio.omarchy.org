@@ -849,7 +849,12 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
 }
 
 .seg-b {
-  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  /* The tracking pushes the last letter's whitespace out; the icon needs less
+     room after it than the gap would give it. */
+  gap: 7px;
+  padding: 7px 12px 7px 10px;
   font-size: 10px;
   font-weight: var(--wt-small);
   letter-spacing: .22em;

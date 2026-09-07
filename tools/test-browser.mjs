@@ -17,7 +17,8 @@
 
      - opening /playlist/<song> plays that song, and nothing else
      - opening /podcast/<episode> loads that episode
-     - when autoplay is refused, the deck says so and the next press pays it
+     - when an audible autoplay is refused, it plays muted anyway and the
+       next press turns the sound on where the track has got to
      - pressing a row routes: the address follows, the page does not reload,
        and the audio swaps without going back to the network for a document
      - back and forward walk the songs that were pressed
@@ -168,6 +169,7 @@ window.__state = function () {
     copied: window.__probe.copied.slice(),
     refused: window.__probe.refused.slice(),
     playing: live.length > 0,
+    muted: live.length ? live[0].muted : null,
     src: live.length ? live[0].src : '',
     at: live.length ? live[0].currentTime : 0,
     error: window.__probe.media.map(function (m) { return m.error ? m.error.code : 0; }),
@@ -906,29 +908,34 @@ async function autoplayRefused({ songs }) {
     const wanted = songs[1];
     await tab.go(wanted.path);
 
-    let s = await until('the deck to ask for a press', async () => {
-      const st = await tab.state();
-      return /to start/.test(st.status) ? st : null;
-    });
-    if (s) {
-      ok(/click anywhere to start|tap anywhere to start/.test(s.status),
-         `it says what to do: "${s.status.trim()}"`);
-      ok(s.refused.includes('NotAllowedError'), 'the refusal is the one it acted on');
-      is(s.playing, false, 'and nothing is playing yet');
-      is(s.path, wanted.path, 'the address still names the song that was asked for');
-      is(s.row, wanted.title, 'and its row is the one lit');
-    }
-
-    // A press anywhere that is not itself a control: the deck owes this
-    // listener a song, and this is what pays it.
-    await tab.click('.lcd');
-    s = await until('the owed song to play', async () => {
+    /* No browser grants an audible autoplay here, and every one of them
+       allows a muted one. So the deck plays: no press, no asking. */
+    let s = await until('the deck to play without being pressed', async () => {
       const st = await tab.state();
       return st.playing && st.at > 0 ? st : null;
     });
+    if (!s) return;
+
+    is(s.muted, true, 'it is playing, and it is muted, having been refused the sound');
+    ok(s.refused.includes('NotAllowedError'), 'the refusal is the one it acted on');
+    ok(/muted/.test(s.status), `and the status says which kind of playing ("${s.status.trim()}")`);
+    console.log(`  it says: ${JSON.stringify(s.status.trim())}`);
+    ok(decodeURIComponent(s.src).includes(wanted.file), 'it is the song the link named');
+    is(s.path, wanted.path, 'the address still names it');
+    is(s.row, wanted.title, 'and its row is the one lit');
+
+    // A press anywhere that is not itself a control: this is what buys sound.
+    const wasAt = s.at;
+    await tab.click('.lcd');
+    s = await until('the sound to come on', async () => {
+      const st = await tab.state();
+      return st.playing && st.muted === false ? st : null;
+    });
     if (s) {
-      ok(decodeURIComponent(s.src).includes(wanted.file),
-         'the press pays back the song the link named');
+      is(s.muted, false, 'a press anywhere turns the sound on');
+      is(s.status.trim(), 'playing', 'and the status stops qualifying it');
+      ok(s.at >= wasAt, `it carries on from where it was, not from the top (${wasAt} -> ${s.at})`);
+      ok(decodeURIComponent(s.src).includes(wanted.file), 'still the same song');
       is(s.path, wanted.path, 'and the address is unchanged');
     }
   } finally {

@@ -173,9 +173,9 @@ var lev = new Float32Array(BAR_COUNT);
 // paints: it is twenty-odd colour mixes and it only changes when the skin does.
 var curTheme: Theme | null = null;
 var simVis = true;
-var audio: HTMLAudioElement;
-var music: HTMLAudioElement;
-var pod: HTMLAudioElement;
+var audio: HTMLMediaElement;
+var music: HTMLMediaElement;
+var pod: HTMLMediaElement;
 var ctx: AudioContext | null = null;
 var analyser: AnalyserNode | null = null;
 var freq: Uint8Array<ArrayBuffer> | null = null;
@@ -574,9 +574,31 @@ function watchdog() {
 
    Every handler asks first whether it is still the element in use, because
    switching pauses the other one and a pause fires an event either way. */
-function makeAudio(analysed: boolean): HTMLAudioElement {
-  var a = new Audio();
+/* A <video>, for a deck that plays no video.
+ *
+ * This is the whole of why the deck can start on arrival. Browsers refuse an
+ * audible autoplay to a site nobody has engaged with, and the exemption
+ * everybody quotes — "a muted autoplay is always allowed" — turns out to be
+ * an exemption for <video> and not for <audio>. Measured, under both of
+ * Chromium's restrictive policies:
+ *
+ *     new Audio(src), muted        NotAllowedError
+ *     new Audio(src), volume = 0   NotAllowedError
+ *     <video>, muted               plays
+ *
+ * A media element with no picture is a perfectly ordinary thing for a <video>
+ * to be, and every other part of this is identical: the same
+ * HTMLMediaElement API, the same events, the same analyser node, the same
+ * media session. It is never put in the document, so there is no frame to
+ * lay out and nothing to show. playsInline is for iOS, which would otherwise
+ * take a play() as a request to go fullscreen — and which is also the
+ * platform where <audio> could never autoplay at all. */
+function makeAudio(analysed: boolean): HTMLMediaElement {
+  var a = document.createElement('video');
   a.preload = 'none';
+  a.playsInline = true;
+  // Nothing to cast, and no picture to send anywhere.
+  a.disableRemotePlayback = true;
   if (analysed) a.crossOrigin = 'anonymous';
   a.volume = S.vol;
 
@@ -601,7 +623,8 @@ function makeAudio(analysed: boolean): HTMLAudioElement {
     armed = null; // whatever was owed, it is playing now
     lastProgress = Date.now();
     S.playing = true;
-    setStatus('playing');
+    // Playing, and whether it can be heard is the other half of the news.
+    setStatus(a.muted ? mutedMessage() : 'playing');
     paintTransport();
   });
   a.addEventListener('pause', function () {
@@ -628,7 +651,7 @@ function buildAudio() {
 
 // Only one of them is ever the deck. The other stops rather than sitting
 // paused halfway through an episode while a song plays over it.
-function useElement(a: HTMLAudioElement) {
+function useElement(a: HTMLMediaElement) {
   if (audio === a) return;
   var was = audio;
   audio = a; // before the pause, so the old element's handler stands down
@@ -777,13 +800,16 @@ function play(src: string, mode: Mode, ti: number) {
   if (ctx && ctx.state === 'suspended') ctx.resume();
   audio.src = src;
   audio.load();
+  // Every attempt is an attempt at sound. A press earns an audible one where
+  // an arrival did not, so being muted once is not being muted for good.
+  audio.muted = false;
   var p = audio.play();
   // NotAllowedError is the autoplay block, the only rejection the listener
   // can actually act on. AbortError just means a later pause/load
   // superseded this call, and a source that will not load rejects here
   // too, where the reconnect path is the one that should speak.
   if (p && p.catch) p.catch(function (err) {
-    if (err && err.name === 'NotAllowedError') arm(src, mode, ti);
+    if (err && err.name === 'NotAllowedError') silence(src, mode, ti);
   });
   S.mode = mode;
   S.ti = ti;
@@ -831,6 +857,11 @@ function playStory(i: number, how?: How) {
 }
 
 function toggle() {
+  /* Pressing play on a deck that is already playing silently is asking for
+     the sound, not for a pause. It is the one press on this button that does
+     not mean what the button's face says, and the status line is what asked
+     for it. */
+  if (silenced()) { unsilence(); return; }
   if (!audio.paused) { intent = 'pause'; cancelReconnect(); audio.pause(); return; }
   intent = 'play';
   var want = wantedSrc();
@@ -871,12 +902,49 @@ function prev() {
 }
 
 /* ── autoplay ────────────────────────────────────────
-   Joining the site is the tune-in: the deck should already be playing by
-   the time it has finished drawing. Browsers only grant an audible
-   autoplay to a site the listener has engaged with before, so a first
-   visit is refused outright. Rather than leave them looking at a dead
-   deck, remember what was owed and spend their next gesture on it,
-   wherever on the page it lands. */
+   Joining the site is the tune-in: the deck should already be playing by the
+   time it has finished drawing.
+
+   No browser grants an audible autoplay to a site the listener has not
+   engaged with before, and there is no arguing with it. What every one of
+   them does allow is a *muted* one — so that is what a refusal turns into.
+   The deck starts anyway: the clock runs, the marquee is the song, the row
+   says playing, and the first gesture turns the sound on where the track has
+   got to. A radio somebody can watch running is a better answer than a dead
+   deck asking to be clicked, and joining a song part-way through is what
+   tuning in has always been.
+
+   Only when even that is refused is there nothing left but to ask, which is
+   what arm() is still for: iOS refuses it for an <audio> element. */
+
+/** Playing, but silent, because the arrival was not allowed to be audible. */
+function silenced(): boolean {
+  return !!audio && audio.muted && !audio.paused;
+}
+
+function mutedMessage(): string {
+  return window.matchMedia('(pointer: coarse)').matches
+    ? 'playing muted · tap for sound'
+    : 'playing muted · click for sound';
+}
+
+/** The audible attempt was refused. A muted one is not, so the deck plays. */
+function silence(src: string, mode: Mode, ti: number) {
+  audio.muted = true;
+  var p = audio.play();
+  if (p && p.catch) p.catch(function () {
+    // Not even silently. Nothing left to do but say so and wait.
+    audio.muted = false;
+    arm(src, mode, ti);
+  });
+}
+
+/** The gesture that buys the sound. Where the track has got to, not the top. */
+function unsilence() {
+  music.muted = false;
+  pod.muted = false;
+  if (!audio.paused) setStatus('playing');
+}
 
 function arm(src: string, mode: Mode, ti: number) {
   armed = { src: src, mode: mode, ti: ti };
@@ -904,6 +972,10 @@ function firstGesture(e: Event) {
     // context that is allowed to run, and this gesture is what buys one.
     wireGraph();
   }
+  /* Already playing, silently, because the arrival was not allowed to be
+     audible. This is the gesture that pays for the sound. A press on a
+     control is left to that control, which knows what it meant. */
+  if (silenced() && !spokenFor(e)) { unsilence(); return; }
   if (!armed || spokenFor(e)) return;
   var owed = armed;
   armed = null;
