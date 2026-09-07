@@ -36,7 +36,9 @@ import { spawn } from 'node:child_process';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readFileSync } from 'node:fs';
 import { assignSlugs, fold, slugify } from '../src/lib/slug.ts';
+import { SKINS, derive } from '../src/scripts/theme.ts';
 /* The parsing, not the reading: the build imports the manifest and the feed
    through Vite, which plain node knows nothing about. This is the same code
    over the same two files. */
@@ -47,6 +49,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
 const PORT = Number(process.env.PORT || 8901);
 const BASE = `http://127.0.0.1:${PORT}`;
+
+const readFileSyncText = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
 const fails = [];
 let checks = 0;
@@ -204,6 +208,32 @@ const ADVERSARIAL = [
   { title: '  spaced  out  ', artist: 'E', key: 'playlist/spaced-out' },
 ];
 
+/* The stylesheet's :root block is the theme the page wears for the one frame
+   before the deck has run. It is a copy of what derive() gives for the first
+   skin, and a copy drifts: twelve of them were wrong, quietly, because
+   nothing had ever compared the two. This is that comparison. */
+function fallbackRule() {
+  const css = readFileSyncText('src/styles/style.css');
+  const deck = readFileSyncText('src/scripts/deck.ts');
+  const root = css.slice(css.indexOf(':root {'), css.indexOf('}', css.indexOf(':root {')));
+  const green = derive(SKINS[0]);
+
+  /* Which properties matter is not a list to keep by hand either: it is
+     whatever applyTheme() writes, read out of the deck. */
+  const written = [...deck.matchAll(/setProperty\('(--[a-zA-Z-]+)', k\.([a-zA-Z0-9]+)\)/g)];
+  ok(written.length > 15, `applyTheme() writes ${written.length} theme properties, which is too few to be right`);
+
+  for (const [, prop, key] of written) {
+    const want = green[key];
+    if (typeof want !== 'string' || !/^#[0-9a-f]{6}$/.test(want)) continue; // not a colour
+    const found = new RegExp(`\\${prop}:\\s*(#[0-9a-f]{6})`).exec(root);
+    if (!ok(found, `:root has no fallback for ${prop}, which applyTheme() writes`)) continue;
+    ok(found[1] === want,
+       `:root says ${prop} is ${found[1]}, but the first skin derives ${want}`);
+  }
+  console.log(`  ${written.length} theme properties, every fallback matching what it derives`);
+}
+
 /* What somebody types, against what they type it at. The pairs that matter
    are the ones where the two spellings differ. */
 const FOLDS = [
@@ -278,6 +308,22 @@ async function main() {
 
   console.log('the rule a search is matched by');
   foldRule();
+
+  console.log('the theme the page wears before the deck has run');
+  fallbackRule();
+
+  /* A filename is also an address — the deck serves it from /tracks/<file> —
+     so it is held to the same shape an address is. Left to drift, one song
+     with an apostrophe in its filename puts a %27 back in the URL. */
+  console.log('every song is a file the URL can carry as it stands');
+  for (const t of tracks) {
+    if (t.file === undefined) continue; // hosted elsewhere; it carries its own url
+    ok(/^[a-z0-9]+(?:-[a-z0-9]+)*\.mp3$/.test(t.file),
+       `${t.file} is not a slug: lower case, hyphens, and .mp3`);
+    ok(t.url === encodeURI(t.url) && !/%/.test(t.url),
+       `${t.url} needs escaping to be asked for`);
+  }
+  console.log(`  ${tracks.length} filenames, none of them needing an escape`);
 
   console.log('every item has a page, and nothing else does');
   for (const kind of ['playlist', 'podcast']) {

@@ -256,6 +256,9 @@ function applyTheme() {
   r.setProperty('--acHi', k.acHi);
   r.setProperty('--g1', k.g1);
   r.setProperty('--g2', k.g2);
+  r.setProperty('--meter-low', k.mLow);
+  r.setProperty('--meter-mid', k.mMid);
+  r.setProperty('--meter-high', k.mHigh);
   r.setProperty('--field-dim', k.fDim);
   r.setProperty('--field-mid', k.fMid);
   r.setProperty('--field-lit', k.fLit);

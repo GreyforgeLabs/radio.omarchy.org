@@ -9,17 +9,22 @@
   --fg: #e7e6e0;
   --ac: #5ef2a0;
   --bd: #23261f;
-  --bdF: #14170f;
-  --c2: #797b74;
-  --c3: #4a4c46;
-  --rowOn: #101711;
-  --rowHov: #101110;
-  --trk: #1e201d;
-  --lcd: #050505;
-  --acFg: #000000;
-  --acHi: #8bf5b8;
-  --g1: #365f45;
-  --g2: #26402f;
+  --bdF: #151713;
+  --c2: #7d7d79;
+  --c3: #4c4d4a;
+  --rowOn: #14271c;
+  --rowHov: #191a19;
+  --trk: #2b2c2a;
+  --lcd: #050605;
+  --acFg: #070707;
+  --acHi: #8ef6bd;
+  --g1: #36885a;
+  --g2: #276040;
+
+  /* The meter's three zones. Green-theme values, as the pre-script fallback. */
+  --meter-low: #30774f;
+  --meter-mid: #5ef2a0;
+  --meter-high: #95f6c0;
 
   /* The field's ink ramp. The ground behind the deck is not one colour at
      varying alpha: it is hard cells, each wearing one of these. Same five
@@ -423,13 +428,12 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
   height: calc(var(--seg) * var(--segs));
   margin-top: 16px;
 }
-/* Three zones, the way a stereo's meter has three, and one hue: the accent
-   mixed toward the LCD's own ground for the quiet body, the accent itself
-   through the middle, and the accent lifted off it at the top. Depth comes
+/* Three zones, the way a stereo's meter has three, and one hue. Depth comes
    from which ink a brick wears, never from opacity — the same rule the field
    follows, and the reason the meter and the ground look related.
-   --g1 and --acHi are the LCD's, not the deck's: this panel has a ground of
-   its own, and the tokens mixed toward --bg would be the wrong family. */
+   The ramp is derived in theme(), against the LCD's own ground rather than
+   the deck's: this panel is a different surface, and on a light theme a ramp
+   built the dark theme's way washes out at the quiet end. */
 .vis span {
   flex: 1;
   /* One brick at rest, so the meter reads as a meter before there is sound. */
@@ -445,9 +449,9 @@ a, button, [role="slider"] { -webkit-tap-highlight-color: transparent; }
        box whose height is the thing that changes. */
     linear-gradient(
       to top,
-      var(--g1) 0 calc(var(--seg) * 6),
-      var(--ac) calc(var(--seg) * 6) calc(var(--seg) * 10),
-      var(--acHi) calc(var(--seg) * 10) 100%);
+      var(--meter-low) 0 calc(var(--seg) * 6),
+      var(--meter-mid) calc(var(--seg) * 6) calc(var(--seg) * 10),
+      var(--meter-high) calc(var(--seg) * 10) 100%);
 }
 
 /* ── transport ───────────────────────────────────────── */

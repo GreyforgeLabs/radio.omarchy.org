@@ -20,7 +20,7 @@ For a sense of how far that can go, listen to [Still Licensed](https://radio.oma
 
 ## How to send one
 
-Drop the MP3 in `public/tracks/`, add three lines to `public/tracks/playlist.json`, open a pull request. That is the whole of it — nothing generated lives in this repo, so a song is a song and not also the thirty-odd pages it changes. The details are in [public/tracks/README.md](public/tracks/README.md).
+Drop the MP3 in `public/tracks/` named `artist-title.mp3`, add three lines to `public/tracks/playlist.json`, open a pull request. That is the whole of it — nothing generated lives in this repo, so a song is a song and not also the thirty-odd pages it changes. The details are in [public/tracks/README.md](public/tracks/README.md).
 
 ## Links
 
@@ -97,6 +97,20 @@ middle, the accent lifted off the ground at the top — so it comes out of
 whatever theme is on and reads as the same material as the field behind the
 deck. On a light theme the top of the ramp darkens instead of lightening,
 because contrast is what "hot" means.
+
+## The songs are files
+
+Every track is served straight out of the repo, so a filename is also an
+address: `radio.omarchy.org/tracks/<file>`. They used to be named
+`Artist - Title.mp3`, which works — the player encodes it — and arrives as
+`/tracks/Aur%C3%A9lien%20-%20Omarchee%2C%20c'est%20la%20vie.mp3`, which is not
+something anybody can read, type, or paste into `mpv` without care.
+
+They are slugs now, through the same rule that turns a title into an address:
+`aurelien-omarchee-cest-la-vie.mp3`. The title and the artist in
+`playlist.json` keep their punctuation, their accents and their capitals,
+because those are what anybody actually reads. The filename is plumbing, and
+`npm test` holds it to that shape so it cannot drift back.
 
 ## The podcast
 

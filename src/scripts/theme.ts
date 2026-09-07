@@ -32,6 +32,10 @@ export interface Theme extends Skin {
   acHi: string;
   g1: string;
   g2: string;
+  /** The meter's three zones, bottom to top. */
+  mLow: string;
+  mMid: string;
+  mHigh: string;
   /** The field's five-step ink ramp. */
   fDim: string;
   fMid: string;
@@ -85,6 +89,47 @@ export function lum(hex: string): number {
   return 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
 }
 
+/* Relative luminance, linearised — which lum() above is not, and should not
+   become: it decides whether a theme is light, and it has decided that the
+   same way for twenty-four themes. This one is for contrast, where the
+   gamma actually matters. */
+function relative(hex: string): number {
+  const p = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
+}
+
+function contrast(a: string, b: string): number {
+  const la = relative(a);
+  const lb = relative(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/* Dims `ink` toward `ground`, but no further than `floor` contrast against it.
+ *
+ * A fraction of the way to the ground is not the same amount of dimming in
+ * both directions. On a dark theme the accent is bright and the ground is
+ * near-black, so 45% of the way still leaves a colour that reads. On a light
+ * theme the ground is near-white and an accent has little contrast against
+ * white to begin with, so the same 45% is most of what there was — which is
+ * why the LCD's small labels came out as a pale wash on every light theme,
+ * and on several dark ones whose accent is close to their ground.
+ *
+ * So the mix asks for as much dimming as it can have and then walks back until
+ * the result reads. A theme already clear of the floor is not touched at all. */
+function dim(ink: string, ground: string, t: number, floor: number): string {
+  let at = t;
+  let out = mix(ink, ground, at);
+  // Twentieths: finer than the eye follows, and a handful of steps at worst.
+  while (at > 0 && contrast(out, ground) < floor) {
+    at = Math.max(0, at - 0.05);
+    out = mix(ink, ground, at);
+  }
+  return out;
+}
+
 /** A theme's four seeds, worked up into everything the deck paints with. */
 export function derive(t: Skin): Theme {
   const { bg, fg, ac, bd } = t;
@@ -105,8 +150,24 @@ export function derive(t: Skin): Theme {
     lcd,
     acFg: lum(ac) > 0.55 ? mix(bg, '#000000', 0.35) : '#ffffff',
     acHi,
-    g1: mix(ac, lcd, 0.45),
-    g2: mix(ac, lcd, 0.62),
+    /* The LCD's own dim inks: g1 for its small labels and the artist line,
+       g2 for the total time, which is the quietest thing on the panel. The
+       floors are what they need to stay readable at 9px and 17px; the
+       hierarchy between them is unchanged. */
+    g1: dim(ac, lcd, 0.45, 3),
+    g2: dim(ac, lcd, 0.62, 2.2),
+
+    /* The meter's three zones, and its own ramp rather than g1/ac/acHi.
+       Those step *toward* the LCD's ground, which works on a dark theme
+       where the ground is near-black and the accent is bright — but on a
+       light theme the ground is near-white and the quiet end of the ramp
+       washes out to almost nothing. A ramp is made of contrast against the
+       panel, so this steps away from the ground in both polarities: the
+       quiet end is close to it, and the hot end is as far from it as the
+       theme goes. Which direction "far" is in is what light decides. */
+    mLow: mix(ac, lcd, light ? 0.30 : 0.52),
+    mMid: light ? mix(ac, lift, 0.10) : ac,
+    mHigh: mix(ac, lift, light ? 0.42 : 0.34),
 
     /* The field's own ink ramp, derived the way omarchy.org derives its
        --t-field-* steps. The background there is not one colour at varying

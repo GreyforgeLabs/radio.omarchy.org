@@ -468,6 +468,52 @@ screen, and a track running into the next one must not move the list out from
 under whoever is reading further down it — the same rule about whose scroller
 it is that the lyric sheet follows with `handScrolled`.
 
+## What light mode was hiding
+
+The meter went in built out of `--g1`, `--ac` and `--acHi`, and on Rosé Pine
+half of it disappeared. Measuring it turned up something bigger than the
+meter.
+
+`--g1` and `--g2` are the LCD's dim inks — its small labels, the artist line,
+the total time — and they are the accent mixed 45% and 62% of the way toward
+the LCD's own ground. That works on a dark theme, where the ground is
+near-black and the accent is bright, and it does not work on a light one,
+where the ground is near-white and an accent has little contrast against white
+to begin with. **A fraction of the way to the ground is not the same amount of
+dimming in both directions.** On thirteen of the twenty-four themes `--g1` was
+under 3:1 against the panel it sits on — every light theme, worst at 1.83, and
+several dark ones whose accent is close to their ground.
+
+So the dimming is derived against a floor now. `dim()` asks for as much as it
+can have and walks back in twentieths until the result reads: 3:1 for `--g1`
+at 9px, 2.2:1 for `--g2`, which is the quietest thing on the panel and meant
+to be. A theme already clear of the floor is not touched — `green`,
+`hackerman`, `kanagawa`, `lumon` and `retro 82` come out exactly as before —
+and `--g1` stays ahead of `--g2` on all twenty-four.
+
+That needed a second luminance function. `lum()` is Rec. 709 over gamma-encoded
+values and it decides whether a theme is light; it has decided that the same
+way for twenty-four themes and it is not going to start deciding differently.
+`relative()` linearises, which is what a contrast ratio actually needs. Two
+functions because they answer two questions.
+
+The meter got its own ramp out of the same reasoning, rather than reusing
+tokens built for text: it steps *away* from the ground in whichever direction
+the theme's `lift` points, so the hot end is brighter on a dark theme and
+darker on a light one, and "hot" means "more contrast" without a special case.
+
+### And the fallbacks had drifted
+
+`:root` in the stylesheet carries the first skin's values as the theme the page
+wears for the one frame before the deck runs. It is a copy, and twelve of the
+twenty-three were wrong — `--g1` in there was the old `--g2`'s value. Invisible,
+because it is one frame, and wrong all the same.
+
+They are regenerated from `derive(SKINS[0])`, and `tools/test-routes.mjs` now
+compares the two rather than trusting them: it reads the properties out of
+`applyTheme()` itself, so the list of what to check is not a third copy to keep
+by hand either.
+
 ## The readout, played back as tape
 
 One thing was added: the LCD is drawn through [Canvas UI](https://canvasui.dev)'s

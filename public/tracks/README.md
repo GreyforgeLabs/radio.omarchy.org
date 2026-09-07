@@ -8,8 +8,8 @@ again at the end.
 
 ## Add a track
 
-1. Drop your MP3 in this folder, named `Artist - Title.mp3`, or
-   `Artist - Title-explicit.mp3` if the lyrics are explicit.
+1. Drop your MP3 in this folder, named `artist-title.mp3` — lower case, words
+   joined by hyphens, nothing in it but `a-z`, `0-9` and `-`.
 2. Add an entry to `playlist.json`.
 3. Open a pull request.
 
@@ -17,7 +17,7 @@ again at the end.
 {
   "title": "Play the Machine",
   "artist": "Dan T.",
-  "file": "Dan T. - Play the Machine.mp3"
+  "file": "dan-t-play-the-machine.mp3"
 }
 ```
 
@@ -37,20 +37,34 @@ when the pull request lands, along with its card and its sitemap entry.
 | `explicit` | no | `true` shows an EXPLICIT badge beside the title |
 | `lyrics` | no | filename of the sheet in `lyrics/`, or `false` for none |
 
-If the lyrics are explicit, set `explicit`, end the filename `-explicit.mp3`, and
-put `[EXPLICIT]` in the pull request title.
+If the lyrics are explicit, set `explicit` and put `[EXPLICIT]` in the pull
+request title. The badge comes from the field, not from the filename.
 
-Spaces, accents and apostrophes in `file` are fine. The player encodes the
-name when it builds the URL, so write it exactly as the file is named and do
-not escape anything yourself.
+## Why the filename is a slug
+
+`file` is a filename and also an address: the deck serves it from
+`radio.omarchy.org/tracks/<file>`. A name with a space, an accent or an
+apostrophe in it works — the player encodes it, and it did for a long time —
+but it arrives as
+`/tracks/Aur%C3%A9lien%20-%20Omarchee%2C%20c'est%20la%20vie.mp3`, which is not
+a thing anybody can read, type, or paste into `mpv` without care.
+
+So the file gets the same treatment an address gets. `artist-title.mp3`,
+through the same rule in [`src/lib/slug.ts`](../../src/lib/slug.ts) that turns
+a title into `/playlist/<song>`: accents stripped, apostrophes dropped,
+anything else that is not a letter or a digit becoming a hyphen.
+
+The title and the artist in `playlist.json` are what anybody actually reads,
+and those keep their punctuation, their accents and their capitals. The
+filename is plumbing.
 
 ## Lyrics
 
 Optional, and only you can send them: they are your words, so nobody else
 gets to put them on the site for you.
 
-Drop a file in `lyrics/` named after the MP3 — `Artist - Title.lrc` for
-`Artist - Title.mp3` — and the player finds it on its own. No manifest change
+Drop a file in `lyrics/` named after the MP3 — `artist-title.lrc` for
+`artist-title.mp3` — and the player finds it on its own. No manifest change
 is needed unless the sheet is named something else, in which case name it in
 the `lyrics` field.
 
