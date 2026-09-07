@@ -7,7 +7,7 @@ read as one family.
 
 They are already tied together at the content level. The redesign's hero plays
 **"We Can Fix Everything (The Ultimate Machine)" by Kevin Koontz** — a track that
-lives in `tracks/playlist.json` in this repository — and `src/lib/music.ts`
+lives in `public/tracks/playlist.json` in this repository — and `src/lib/music.ts`
 carries `radio: 'https://radio.omarchy.org/'`. The main site's front page is
 listening to this station. It should not look like a different project.
 
@@ -208,7 +208,7 @@ For comparison, the deck's own system, which is documented by its code rather
 than by a doc:
 
 - **Four seeds, fifteen tokens.** A theme is `bg`, `fg`, `ac`, `bd`; everything
-  else is computed in `theme()` in `app.js` by `mix()` (linear sRGB) and `lum()`
+  else is computed in `theme()` in `src/scripts/theme.ts` by `mix()` (linear sRGB) and `lum()`
   (Rec. 709), and written to custom properties by `applyTheme()`. `--acFg` is
   chosen from the accent's own luminance; `--g1`/`--g2` mix the accent toward
   `--lcd` rather than `--bg`, because the LCD is a different ground.
@@ -225,7 +225,7 @@ than by a doc:
 - **The LCD**, the one lit surface, with its own ground, its own inks, and a
   scanline overlay that thins from `rgba(0,0,0,.42)` at 2px to
   `rgba(0,0,0,.055)` at 1px on light themes.
-- **The background**, in `drawBg()`: a 24px grid of squares, each column mapped
+- **The background**, in `drawField()`: a 24px grid of squares, each column mapped
   to one of 56 analyser bands, alpha `0.018 + level*0.10*wave + amp*0.05*wave`
   capped at `0.2`, size `1 + level*wave*2.2` px, all in `--ac`, plus a radial
   glow. Skipped entirely under reduced motion.
@@ -241,7 +241,7 @@ pixel background from an audio analyser. Nobody has to be talked into anything.
 
 | | omarchy.org (#171) | radio.omarchy.org |
 | --- | --- | --- |
-| Themes | 6, every value hand-authored from `colors.toml` | 24, derived from 4 seeds |
+| Themes | 6, every value hand-authored from `colors.toml` | 24 from 4 seeds, plus the desktop's own live |
 | Field inks | 6-step ramp, hard cells | 1 colour, varying alpha |
 | Field structure | 8×8 Bayer ordered dither + jitter | plain grid, no dither |
 | Cell size | one wordmark pixel, published to CSS and JS | 24px, arbitrary |
@@ -251,7 +251,7 @@ pixel background from an audio analyser. Nobody has to be talked into anything.
 | Reduced motion | draws, frozen at `t = 0` | does not draw |
 | Small labels | 3×5 pixel font | 9px uppercase, `.22em` tracking |
 | Readouts | none | VT323 |
-| Stack | React, Vite, Tailwind, shadcn | one HTML, one CSS, one JS |
+| Stack | React, Vite, Tailwind, shadcn | Astro, one stylesheet, one script |
 
 ---
 
@@ -309,15 +309,151 @@ the deck's 9px tracked uppercase is already a strong treatment.
 each. If anything the influence should run the other way. Borrow the *field ramp*
 as a concept; keep computing it.
 
-**The stack.** React, Vite, Tailwind and shadcn are the right call for a site
-with a manual, a plugin catalogue, search and six routes. This deck is three
-files that a contributor can read in an afternoon, and that is a feature of a
-repository whose whole contribution path is "add an MP3 and three lines of JSON".
+**React, Tailwind and shadcn.** They are the right call for a site with a
+manual, a plugin catalogue, search and six routes. There is one page here,
+wearing thirty-eight addresses, and no component on it is reused twice.
+
+This is where the argument used to end: *keep the stack too — three files a
+contributor can read in an afternoon*. That part did not survive, and it is
+worth saying why rather than quietly deleting it. See below.
 
 **`--t-hdr-*`.** Six tokens per theme, thirty-six in total, that the stylesheet's
 own comment says are pre-compensation for a `mix-blend-mode` that does not
 happen — a sticky element forms its own stacking context and has no backdrop to
 blend against. They are kept "for a future attempt". Do not copy dead tokens.
+
+---
+
+# Part 4 — The build
+
+The three files became Astro. What the earlier draft of this doc got wrong was
+which three files there were: the deck, the stylesheet and the script are three,
+but sitting beside them were `tools/build-routes.py` — 600 lines of Python
+templating `index.html` through five marked comment regions — and thirty-five
+generated HTML pages, committed. Contributors sent a song and a diff of the
+thirty-odd pages that song moved.
+
+Astro is that half, done by something that does it for a living:
+
+- **One page, one file.** `src/pages/playlist/[slug].astro` is the page behind
+  every song. The five marked regions are props.
+- **One rule for an address.** `slugify()` and `assignSlugs()` existed twice —
+  once in the deck, once in the Python — with a test whose whole job was to run
+  both over the same titles and check they still agreed. `src/lib/slug.ts` is
+  imported by the build and by the browser. There is nothing left to disagree.
+  The same goes for the labels a row carries: the build wrote `dateLabel()` in
+  Python and the deck wrote it again in JavaScript, and the two spelled a date
+  differently, so a row changed under the reader on load. One `src/lib/format.ts`
+  now, in UTC, so a page built in CI reads the same as a browser anywhere.
+- **The stamp is the bundler's.** `build-routes.py` hashed `app.js` and the two
+  stylesheets and rewrote their `?` suffixes in every page, so a service worker
+  could never serve a cached deck against a page it no longer fits. That is what
+  a content-hashed bundle is, and `sw.js` needed no change to keep the property.
+- **`build.format: 'file'`,** so `/playlist/still-licensed` is still a file at
+  `playlist/still-licensed.html` served at the extensionless path, 200, no
+  redirect. The directory form would have answered every existing link with a
+  301 to a trailing slash the canonical links do not have.
+- **Nothing generated is committed.** The contribution path is what it always
+  was — an MP3 and three lines of JSON — minus the thirty-five files.
+
+What did not change: the design. Every token, every mix, all 24 themes, the
+Bayer threshold, the `REST` level tuned by looking at it, `CLEAR_REACH` and its
+cubed curve, the mirrored spectrum — the field's constants were carried over and
+checked literal by literal, and the 24 derived themes compared value by value
+against the old `theme()`. The stylesheet moved directory and gained one
+section. The deck is the same program in TypeScript, in three modules instead of
+one file, because the field and the tape wanted to be reachable on their own.
+
+## The seeds, arriving live
+
+The four seeds turned out not to be a design decision at all. They are a
+projection of Omarchy's `colors.toml`, and
+[omarchy-theme-sync](https://github.com/omacom/omarchy-theme-sync) — a
+Chromium extension that writes the running theme's palette onto `<html>` as
+`--omarchy-*` properties and rewrites them when the desktop theme changes —
+publishes exactly the file they came out of:
+
+| seed | key |
+| --- | --- |
+| `bg` | `background` |
+| `fg` | `bright_foreground`, or `foreground` where a theme has no brighter one |
+| `ac` | `accent` |
+| `bd` | `selection` |
+
+Checked, not assumed: run over the 22 Omarchy themes installed on a machine,
+those four keys reproduce all 22 of the corresponding entries in `SKINS` value
+for value. `bright_foreground` is the one that had to be found by looking —
+`foreground` alone matches 16 of 22, and the six it misses are the six themes
+whose `bright_foreground` differs from it, which is what the list was copied
+from.
+
+So the deck gained a twenty-fifth theme, first in the list, called `desktop`,
+and it is what a listener gets on a first visit if their browser offers one.
+Nothing about the derivation changed. `derive()` takes the same four values
+and does the same twenty-odd mixes; the field's ink ramp comes out of the same
+accent. The only structural change was that the theme on is now tracked by
+**name** rather than by index into `SKINS` — a list that grows a row at the
+top when an extension wakes up is a list where an index quietly means the
+theme below the one that was picked.
+
+What the extension will not do from here is *set* a theme:
+`THEME_WRITE_ORIGINS` is `https://omarchy.org` exactly, so this deck can read
+the desktop and never write it. That is the right way round. The twenty-four
+stay, and stay the fallback.
+
+## Finding a song
+
+The list grew past the point where reading it is how you find something. **find**
+sits between the panel heading and the column heads, filters what is on screen,
+and does three things worth writing down:
+
+- **Every word has to appear**, across the title and whoever made it, so
+  `koontz fix` is a query and not a mistake.
+- **Folded on both sides** — `src/lib/slug.ts` grew a `fold()` beside
+  `slugify()`, for the same reason and with the spaces kept. Nobody hunting
+  for Aurélien's song is going to reach for the acute.
+- **The number is the item's place in the list**, not its place among the
+  matches. The whole list is walked and non-matches are skipped, which is the
+  same shape `rowsFor()` uses to number one row on a permalink page 02.
+
+And it stays out of the address. Every other thing the deck does to what is on
+screen is written into the path, because those are places somebody can be
+sent; a half-typed query is not one, and a canonical link to one would be
+worse than useless.
+
+## The readout, played back as tape
+
+One thing was added: the LCD is drawn through [Canvas UI](https://canvasui.dev)'s
+VHS shader — tape wave, head-switch band, chroma bleed — with the wave, the
+jitter and the switching driven off `fieldAmp()`, the same smoothed loudness the
+field lights its cells by, and a tear on the record changing.
+
+It is the only surface that gets one. The field is a ground and the deck is
+controls; a readout is the one thing here that is a *picture*, so it is the one
+thing a shader can move without moving something you have to hit. Two of the
+component's options are held at `0` for the same reason the field keeps
+`CLEAR_REACH` away from the frame: `barrel` bends the marquee off its baseline
+and `vignette` darkens the corner the visualiser sits in.
+
+Two things had to be worked out, both written down at their definition in
+`src/scripts/lcd-vhs.ts`:
+
+- **A canvas subtree is not laid out against the canvas's box.** Left alone the
+  readout took its max-content width — 1646px inside an 1178px canvas, the 62px
+  marquee being what made it that wide — and the two right-aligned things on it,
+  the source label and the clock, were laid out past the edge of the texture and
+  never drawn at all. Both sides of the box are measured where the readout really
+  lives and written down before it moves in.
+- **The component captures the element when its box resizes,** which is right for
+  a page that sits still and wrong for a clock. The capture is asked for every
+  frame instead.
+
+And it is Chrome-only, behind a flag today and an origin trial in production, so
+it is enhancement and nothing more: `supportsHtmlInCanvas()` is false and the
+readout stays where it is, wearing the CSS scanlines. Under
+`prefers-reduced-motion` it is not started at all — unlike the field, which has
+a texture worth painting frozen; a still frame of a moving artefact is not the
+effect standing still, it is a smeared readout.
 
 ---
 

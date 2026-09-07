@@ -20,18 +20,119 @@ For a sense of how far that can go, listen to [Still Licensed](https://radio.oma
 
 ## How to send one
 
-Drop the MP3 in `tracks/`, add three lines to `tracks/playlist.json`, open a pull request. The details are in [tracks/README.md](tracks/README.md).
+Drop the MP3 in `public/tracks/`, add three lines to `public/tracks/playlist.json`, open a pull request. That is the whole of it — nothing generated lives in this repo, so a song is a song and not also the thirty-odd pages it changes. The details are in [public/tracks/README.md](public/tracks/README.md).
 
 ## Links
 
-Every song has an address of its own, `radio.omarchy.org/playlist/<song>`, and every episode has `radio.omarchy.org/podcast/<episode>`. Those are real pages, one per item, written by [tools/build-routes.py](tools/build-routes.py) and committed like anything else: open one and it arrives with the song's name in the tab, its own card wherever it is pasted, and the song itself baked into the page so it starts playing before anything is fetched.
+Every song has an address of its own, `radio.omarchy.org/playlist/<song>`, and every episode has `radio.omarchy.org/podcast/<episode>`. Those are real pages, one per item, written by [Astro](https://astro.build) out of the playlist and the mirrored feed: open one and it arrives with the song's name in the tab, its own card wherever it is pasted, and the song itself baked into the page so it starts playing before anything is fetched.
 
 From there it is one deck. Pressing a row swaps the audio and rewrites the address without reloading, so following a link never costs you what you were already hearing, and back goes back. The `#` beside a row copies that row's address.
 
-You do not have to write any of it. Add a song and the workflow writes its page; the show publishes an episode and the hourly mirror writes that one. The links from before this — `radio.omarchy.org/#still-licensed` — still open the same song, and rewrite themselves to the path on the way in.
+You do not have to write any of it. Add a song and the build writes its page; the show publishes an episode and the hourly mirror brings the feed in, which is what makes the next build write that one. The links from before this — `radio.omarchy.org/#still-licensed` — still open the same song, and rewrite themselves to the path on the way in.
+
+An address is spelled by one rule, in [src/lib/slug.ts](src/lib/slug.ts), and both halves import it: the build names the file, the deck works out which song a path means. They cannot disagree, because there is nothing to disagree with.
+
+## Finding a song
+
+Thirty-odd songs is a list you read; a hundred is a list you search. **find**
+sits over the list and filters it as you type — `/` puts the cursor there,
+escape empties it. Every word has to appear somewhere in the row, title or
+artist, so `koontz fix` finds the one Kevin Koontz song about fixing
+everything. Accents are folded on both sides: `aurelien` finds Aurélien.
+
+A filtered row keeps the number it has in the playlist, not the number it has
+among the matches, the same way the page behind a permalink shows one row
+still numbered 02. The address is deliberately left alone — everything else
+the deck does to what is on screen goes into the path, because those are
+places you can send somebody, and a half-typed query is not one.
+
+## Wearing the desktop's theme
+
+The deck has twenty-four themes named after Omarchy's own, each derived from
+four seeds: a ground, an ink, an accent and a line. Install
+[omarchy-theme-sync](https://github.com/omacom/omarchy-theme-sync) and it gets
+a twenty-fifth, first in the list — **desktop** — which is the theme the
+machine is actually running, and which follows it: switch your desktop theme
+and the deck repaints without a reload.
+
+That is not an approximation. The extension publishes Omarchy's own
+`colors.toml`, and the deck's four seeds are exactly a projection of it:
+
+| seed | `colors.toml` |
+| --- | --- |
+| ground | `background` |
+| ink | `bright_foreground`, or `foreground` where a theme has no brighter one |
+| accent | `accent` |
+| line | `selection` |
+
+Run over the 22 Omarchy themes installed on a machine, those four keys
+reproduce all 22 of the hand-copied entries in the list, value for value — the
+list *is* this projection, written down. So following the desktop is the same
+derivation the deck already does, with the seeds arriving live instead of from
+a file.
+
+Without the extension — every browser that is not Chromium on Omarchy — the
+entry is not there and the deck is the twenty-four themes it always was. When
+your desktop theme is also one of the twenty-four, both appear: **desktop**
+follows, and the named one pins.
+
+The extension only lets `omarchy.org` itself *set* themes, so this is a
+one-way follow. Reading is open to any page.
 
 ## The podcast
 
 The playlist panel has a second list: **podcast**, which is [Omarchy Stories](https://omarchystories.org), the show the community makes about running this desktop. Nothing about it lives in this repo. The player reads the show's RSS feed when it loads, so an episode appears here because it was published, not because anybody remembered to add it. Pressing one plays it, the row opens to show its chapters and what it is about, and pressing a chapter jumps there. Every episode has its own link, `radio.omarchy.org/podcast/<episode>`, the same way a song does.
 
-The feed itself is mirrored into this repo, at [stories/feed.rss](stories/feed.rss), by a workflow that runs every hour and commits only when the show has published something. That is not for want of trying to read it live: a browser will only read a feed from another site if that site says it may, with an `Access-Control-Allow-Origin` header on the response, and the show's host sends it on the preflight but not on the `GET` a plain read makes. Mirroring the file makes the feed same-origin and the question moot. The episode audio is still the host's, so their download figures are unaffected. Details in [stories/README.md](stories/README.md).
+The feed itself is mirrored into this repo, at [public/stories/feed.rss](public/stories/feed.rss), by a workflow that runs every hour and commits only when the show has published something. That is not for want of trying to read it live: a browser will only read a feed from another site if that site says it may, with an `Access-Control-Allow-Origin` header on the response, and the show's host sends it on the preflight but not on the `GET` a plain read makes. Mirroring the file makes the feed same-origin and the question moot. The episode audio is still the host's, so their download figures are unaffected. Details in [public/stories/README.md](public/stories/README.md).
+
+## Working on it
+
+```bash
+npm install
+npm run dev        # the deck, at localhost:4321, rebuilt as you save
+npm run build      # every page, into dist/
+npm test           # build, then ask for every address and follow every link
+npm run check      # types
+npm run test:browser   # drive a real browser over the routes (needs chromium)
+```
+
+`npm run build` writes 38 pages: the front, the two lists, one per song, one
+per episode, the 404 the host serves for anything else, and the sitemap. CI
+runs the same three commands and publishes `dist/`; nothing generated is
+committed.
+
+Where things are:
+
+| | |
+| --- | --- |
+| `src/pages/` | one file per kind of address |
+| `src/components/`, `src/layouts/` | the deck's markup, once |
+| `src/lib/` | what the build and the browser both read: the slug rule, the two lists, the labels, the cards |
+| `src/scripts/deck.ts` | the player: audio, routing, the two lists, painting |
+| `src/scripts/field.ts` | the dithered field behind the deck |
+| `src/scripts/theme.ts` | the twenty-four themes, and what a theme derives into |
+| `src/scripts/omarchy-theme.ts` | reading the desktop's live theme |
+| `src/scripts/lcd-vhs.ts` | the tape on the readout |
+| `src/styles/style.css` | the design |
+| `public/` | served as-is: the songs, the mirrored feed, the fonts, the service worker |
+
+## The readout, played back as tape
+
+The LCD — the lit panel with the marquee and the clock on it — is drawn
+through [Canvas UI](https://canvasui.dev)'s VHS shader, with the tape wave,
+the head-switch band and the chroma bleed driven by the same analyser that
+lights the field: it opens up as a track gets loud, and tears for a moment
+when the record changes.
+
+It is the only surface on the deck that gets one, and deliberately. Nothing on
+it is a control, so nothing has to be clicked at a position a shader has
+moved; and the effect needs Chrome's experimental HTML-in-canvas API, which
+means a flag today (`chrome://flags/#canvas-draw-element`) and an origin trial
+in production. Everywhere else the readout is ordinary DOM wearing the CSS
+scanlines it always wore — which is what almost everyone sees, and is why the
+tape is an enhancement and never the design.
+
+The component is vendored, the way that library ships — `npx shadcn@latest add
+@canvas-ui/vhs-vanilla` drops it back into `src/components/canvasui/`, and
+this deck's own wiring is next door in `src/scripts/lcd-vhs.ts`, so an update
+overwrites nothing of ours.

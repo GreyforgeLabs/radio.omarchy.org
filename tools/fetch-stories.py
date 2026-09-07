@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Mirrors the Omarchy Stories feed into stories/feed.rss.
+"""Mirrors the Omarchy Stories feed into public/stories/feed.rss.
 
 The player reads the episode list from this repo rather than from the show's
 host, because a browser will not read another site's feed unless that site
@@ -15,7 +15,11 @@ Run by .github/workflows/stories.yml every hour, and safe to run by hand:
     python3 tools/fetch-stories.py
 
 It leaves the file alone unless the show actually published something, so an
-hourly job does not write 24 commits a day. Standard library only.
+hourly job does not write 24 commits a day.
+
+The commit is what publishes an episode: the page behind /podcast/<episode> is
+written by the build, out of this file, so pushing it is what makes that page
+exist. Standard library only.
 """
 
 import argparse
@@ -28,7 +32,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 FEED = 'https://api.riverside.com/hosting/1i59HjrN.rss'
-DEST = 'stories/feed.rss'
+DEST = 'public/stories/feed.rss'
 UA = 'omarchy-radio (+https://radio.omarchy.org)'
 
 TRIES = 3

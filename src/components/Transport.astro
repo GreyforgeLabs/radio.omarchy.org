@@ -1,0 +1,29 @@
+---
+/* The controls. These stay ordinary DOM: a shader that moves a button's
+ * picture without moving its hit box is a button that misses. */
+---
+<section class="transport" aria-label="Playback controls">
+  <div class="tbtns">
+    <button type="button" class="tb" id="prev" aria-label="Previous track">&#9664;&#9664;</button>
+    <button type="button" class="tb tb-play" id="toggle" aria-label="Play or pause"><span id="playGlyph">&#9654;</span></button>
+    <button type="button" class="tb" id="stop" aria-label="Stop">&#9632;</button>
+    <button type="button" class="tb" id="next" aria-label="Next track">&#9654;&#9654;</button>
+  </div>
+
+  <div class="seek" id="seek" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div class="seek-track">
+      <div class="seek-fill" id="seekFill"></div>
+      <div class="seek-head" id="seekHead"></div>
+    </div>
+  </div>
+
+  <div class="knobs">
+    <div class="knob-wrap">
+      <span class="knob-lbl">vol</span>
+      <div class="knob" id="volKnob" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80">
+        <div class="knob-rot" id="volRot"><span class="knob-tick"></span></div>
+      </div>
+      <span class="knob-val" id="volLabel">80</span>
+    </div>
+  </div>
+</section>

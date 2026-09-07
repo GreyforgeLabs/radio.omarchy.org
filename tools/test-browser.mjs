@@ -1,12 +1,13 @@
 /* Drives a real browser over the routes, because the thing worth testing
-   about a permalink is not that the file exists — tools/test-routes.py has
+   about a permalink is not that the file exists — tools/test-routes.mjs has
    that — but what happens in the four seconds after somebody opens one.
 
        node tools/test-browser.mjs
 
-   It serves the working tree through tools/test-routes.py --serve, which
-   resolves paths the way GitHub Pages does, and drives chromium through the
-   DevTools protocol. No dependencies: node's own WebSocket, and chromium.
+   It serves dist/ through tools/test-routes.mjs --serve, which resolves paths
+   the way GitHub Pages does, and drives chromium through the DevTools
+   protocol. No dependencies: node's own WebSocket, and chromium. Run
+   `npm run build` first, or `npm test`, which builds.
 
    Point it at what is deployed to check a deploy:
 
@@ -120,6 +121,17 @@ window.__state = function () {
     rowHref: on ? on.getAttribute('href') : '',
     state: on ? (on.querySelector('.tr-st') || {}).textContent : '',
     rows: document.querySelectorAll('a.track').length,
+    // The numbers on screen, which are the items' places in the list rather
+    // than their places among whatever the find box left showing.
+    nums: Array.prototype.map.call(document.querySelectorAll('#tracks .tr-n'),
+      function (n) { return n.textContent; }),
+    titles: Array.prototype.map.call(document.querySelectorAll('#tracks .tr-title'),
+      function (n) { return n.textContent; }),
+    query: (document.getElementById('find') || {}).value || '',
+    hint: (document.getElementById('findHint') || {}).textContent || '',
+    skin: (document.getElementById('skinName') || {}).textContent || '',
+    skins: Array.prototype.map.call(document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin; }),
     tab: (document.querySelector('.seg-b.is-on') || {}).id || '',
     note: (document.getElementById('playlistNote') || {}).textContent || '',
     plays: window.__probe.plays.slice(),
@@ -292,7 +304,7 @@ function open(url) {
 /* ── the site under test ─────────────────────────────────────────────── */
 function serve() {
   if (SITE) return { kill() {} }; // testing what is deployed, not what is here
-  return spawn('python3', [join(ROOT, 'tools/test-routes.py'), '--serve'], {
+  return spawn('node', [join(ROOT, 'tools/test-routes.mjs'), '--serve'], {
     cwd: ROOT, env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore',
   });
 }
@@ -315,6 +327,143 @@ async function routes() {
 }
 
 /* ── the checks ──────────────────────────────────────────────────────── */
+
+/* Typing into the find box, which is the one thing the deck does to what is
+   on screen that deliberately does not touch the address. */
+async function find({ songs }) {
+  section('finding a song');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    await tab.go('/playlist');
+    /* Every page arrives with the rows already in it, so a row on screen is
+       not evidence the deck is running — and typing into a box whose listener
+       is not attached yet does nothing at all. Playing is the signal that the
+       deck has booted, read the manifest and taken the list over. */
+    const all = await until('the deck to own the playlist', async () => {
+      const s = await tab.state();
+      return s.playing && s.rows >= songs.length ? s : null;
+    });
+    if (!all) return;
+
+    const type = async (q) => {
+      await tab.eval(`(function () {
+        var b = document.getElementById('find');
+        b.value = ${JSON.stringify(q)};
+        b.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      return tab.state();
+    };
+
+    // A word from a title and a word from an artist, which no single field has.
+    let s = await type('koontz fix');
+    is(s.rows, 1, 'both words have to appear, across the title and the artist');
+    ok(/Fix Everything/.test(s.titles[0] || ''), `and it is the right song (${s.titles[0]})`);
+    // The number is the song's place in the playlist, not its place here.
+    const at = all.titles.indexOf(s.titles[0]);
+    is(s.nums[0], String(at + 1).padStart(2, '0'),
+       'a filtered row keeps the number it has in the playlist');
+    ok(/\b1 of \d+ tracks\b/.test(s.note), `the note counts the matches (${s.note})`);
+    is(s.hint, 'esc', 'and the key hint says how to get out of it');
+
+    // An accent nobody is going to type.
+    s = await type('aurelien');
+    is(s.rows, 1, 'accents are folded on both sides');
+
+    s = await type('zzz-nothing-is-called-this');
+    is(s.rows, 0, 'a query that matches nothing shows nothing');
+    ok(/nothing matched/.test(s.note), `and says so (${s.note})`);
+
+    // Nothing about any of it is an address.
+    is(s.path, '/playlist', 'a query does not touch the address');
+
+    s = await type('');
+    is(s.rows, songs.length, 'emptying it brings the playlist back');
+    is(s.hint, '/', 'and the hint goes back to the key that focuses it');
+
+    // The query was typed at the songs; the episodes are a different list.
+    await type('quattro');
+    await tab.eval("document.getElementById('tabPodcast').click()");
+    s = await until('the podcast tab', async () => {
+      const st = await tab.state();
+      return st.tab === 'tabPodcast' ? st : null;
+    });
+    if (s) is(s.query, '', 'switching lists clears the query rather than filtering the other one');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
+
+/* The desktop's own theme, as omarchy-theme-sync publishes it: the palette
+   goes onto <html> as --omarchy-* properties, which is the extension's whole
+   contract with a page. This writes them the way it would. */
+const ETHEREAL = { background: '#060b1e', bright_foreground: '#ffcead', accent: '#7d82d9', selection: '#252e56' };
+const GRUVBOX = { background: '#282828', bright_foreground: '#d4be98', accent: '#7daea3', selection: '#504945' };
+
+async function desktopTheme() {
+  section('wearing the desktop theme');
+  const browser = await Browser.launch('no-user-gesture-required');
+  const tab = await browser.tab();
+  try {
+    await tab.go('/');
+    let s = await until('the deck', async () => {
+      const st = await tab.state();
+      return st.rows ? st : null;
+    });
+    if (!s) return;
+
+    // Without the extension there is no such theme, and the list is the list.
+    is(s.skins.length, 24, 'no extension, no desktop theme');
+    is(s.skins[0], 'green', 'and the list is the list');
+
+    const publish = async (palette, name) => {
+      await tab.eval(`(function () {
+        var r = document.documentElement;
+        ${Object.entries(palette).map(([k, v]) =>
+          `r.style.setProperty('--omarchy-${k.replace(/_/g, '-')}', '${v}');`).join('\n        ')}
+        r.dataset.omarchyTheme = ${JSON.stringify(name)};
+        document.dispatchEvent(new Event('omarchythemechange'));
+      })()`);
+      return tab.eval(`(function () {
+        var r = getComputedStyle(document.documentElement);
+        return { bg: r.getPropertyValue('--bg').trim(), fg: r.getPropertyValue('--fg').trim(),
+                 ac: r.getPropertyValue('--ac').trim(), bd: r.getPropertyValue('--bd').trim(),
+                 skin: (document.getElementById('skinName') || {}).textContent,
+                 first: (document.querySelector('#themeMenu li') || {}).dataset.skin,
+                 count: document.querySelectorAll('#themeMenu li').length,
+                 meta: (document.querySelector('meta[name=theme-color]') || {}).content };
+      })()`);
+    };
+
+    let d = await publish(ETHEREAL, 'ethereal');
+    is(d.count, 25, 'the palette lands and the deck gains a theme');
+    is(d.first, 'desktop', 'first in the list, because it is the one you are wearing');
+    is(d.skin, 'desktop · ethereal', 'and the picker names the theme the desktop is on');
+    is(d.bg, ETHEREAL.background, 'the ground is the desktop background');
+    is(d.fg, ETHEREAL.bright_foreground, 'the ink is its bright foreground');
+    is(d.ac, ETHEREAL.accent, 'the accent is its accent');
+    is(d.bd, ETHEREAL.selection, 'the line is its selection');
+    is(d.meta, ETHEREAL.background, 'and the browser chrome follows the ground');
+
+    // Switching the desktop theme repaints without a reload, which is the point.
+    d = await publish(GRUVBOX, 'gruvbox');
+    is(d.skin, 'desktop · gruvbox', 'a desktop theme change is followed');
+    is(d.bg, GRUVBOX.background, 'and repaints without a reload');
+    is(d.ac, GRUVBOX.accent, 'accent too');
+
+    // Picking one of the twenty-four pins it against the desktop.
+    await tab.eval(`Array.prototype.find.call(
+      document.querySelectorAll('#themeMenu li'),
+      function (li) { return li.dataset.skin === 'nord'; }).querySelector('button').click()`);
+    d = await publish(ETHEREAL, 'ethereal');
+    is(d.skin, 'nord', 'a theme picked by hand is not overruled by the desktop');
+    ok(d.bg !== ETHEREAL.background, 'and keeps its own ground');
+  } finally {
+    await tab.close();
+    await browser.close();
+  }
+}
 
 async function autoplayAllowed({ songs, eps }) {
   section('with autoplay allowed, the way a browser treats a site somebody uses');
@@ -659,7 +808,18 @@ async function offline({ songs }) {
     if (s) {
       is(s.path, unseen.path, 'the address survives being answered by the shell');
       is(s.row, unseen.title, 'and the deck routes to the song that was asked for');
-      ok(s.rows > 1, `the playlist came out of the cache (${s.rows} rows)`);
+      /* A row on screen is not yet evidence that the deck read a list: every
+         page arrives with rows already in it — the shell with all of them, a
+         permalink with the one it is for — and which of the two the worker
+         answers with depends on what it had cached. The list is what is under
+         test here, and it comes out of the cache a moment after the paint, so
+         this waits for it rather than reading the prerendered row and calling
+         it a miss. */
+      const full = await until('the playlist to arrive from the cache', async () => {
+        const st = await tab.eval('window.__state ? window.__state() : null');
+        return st && st.rows > 1 ? st : null;
+      }, 10000);
+      if (full) ok(full.rows > 1, `the playlist came out of the cache (${full.rows} rows)`);
     }
     await tab.send('Network.emulateNetworkConditions', {
       offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
@@ -681,6 +841,8 @@ try {
   console.log(`${site.songs.length} songs, ${site.eps.length} episodes`);
   await autoplayAllowed(site);
   await autoplayRefused(site);
+  await find(site);
+  await desktopTheme();
   await offline(site);
   console.log(`  ${passed - mark} checks`);
   console.log(`\n${passed} checks passed`);
